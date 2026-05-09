@@ -1,0 +1,72 @@
+version: "3.9"
+
+networks:
+  energygrid-net:
+    driver: bridge
+
+volumes:
+  energygrid-db-data:
+  energygrid-logs:
+
+services:
+  energygrid-db:
+    image: postgres:15-alpine
+    container_name: ENERGYGRID-DB
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - energygrid-db-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - energygrid-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  energygrid-backend:
+    build: ./backend
+    container_name: ENERGYGRID-BACKEND
+    restart: on-failure:5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: energygrid-db
+      POSTGRES_PORT: ${POSTGRES_PORT}
+    ports:
+      - "${BACKEND_PORT}:8000"
+    volumes:
+      - energygrid-logs:/app/logs
+    networks:
+      - energygrid-net
+    depends_on:
+      energygrid-db:
+        condition: service_healthy
+
+  energygrid-frontend:
+    build: ./frontend
+    container_name: ENERGYGRID-FRONTEND
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    networks:
+      - energygrid-net
+    depends_on:
+      - energygrid-backend
+
+  energygrid-simulator:
+    build: ./simulator
+    container_name: ENERGYGRID-SIMULATOR
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://energygrid-backend:8000
+      INTERVAL_MS: ${SIMULATOR_INTERVAL_MS}
+    networks:
+      - energygrid-net
+    depends_on:
+      - energygrid-backend
