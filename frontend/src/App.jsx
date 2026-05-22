@@ -87,7 +87,7 @@ function App() {
       </main>
       <section className="cards-section">
         {districts.map((d) => (
-          <DistrictCard key={d.id} district={d} />
+          <DistrictCard key={d.district_id} district={d} />
         ))}
       </section>
     </div>
