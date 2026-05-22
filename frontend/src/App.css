@@ -55,3 +55,206 @@ body {
   padding: 0 1rem 1rem;
   flex-wrap: wrap;
 }
+
+/* District Cards */
+.district-card {
+  flex: 1;
+  min-width: 250px;
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 1rem;
+  border-left: 4px solid #22c55e;
+  transition: all 0.3s ease;
+}
+
+.district-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.district-card-normal {
+  border-left-color: #22c55e;
+}
+
+.district-card-alto {
+  border-left-color: #eab308;
+}
+
+.district-card-advertencia {
+  border-left-color: #f97316;
+  background: #2d2416;
+}
+
+.district-card-critico {
+  border-left-color: #ef4444;
+  background: #2d1818;
+  animation: pulse-critical 1s infinite;
+}
+
+@keyframes pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.card-header h3 {
+  font-size: 1.1rem;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+.status-badge {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.metric-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-label {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.metric-value {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #0f172a;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #eab308);
+  border-radius: 4px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.district-card-advertencia .progress-fill {
+  background: linear-gradient(90deg, #f97316, #ef4444);
+}
+
+.district-card-critico .progress-fill {
+  background: #ef4444;
+}
+
+.card-footer {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #334155;
+  color: #64748b;
+}
+
+/* Alert Panel */
+.alert-panel {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #334155;
+}
+
+.alert-panel h2 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #f1f5f9;
+}
+
+.no-alerts {
+  text-align: center;
+  color: #22c55e;
+  padding: 1rem;
+  font-weight: 500;
+}
+
+.alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.alert-item {
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 3px solid;
+}
+
+.alert-critical {
+  background: rgba(239, 68, 68, 0.1);
+  border-left-color: #ef4444;
+}
+
+.alert-warning {
+  background: rgba(249, 115, 22, 0.1);
+  border-left-color: #f97316;
+}
+
+.alert-info {
+  background: rgba(59, 130, 246, 0.1);
+  border-left-color: #3b82f6;
+}
+
+.alert-header {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  align-items: center;
+}
+
+.alert-icon {
+  font-size: 1.1rem;
+}
+
+.alert-description {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+.alert-district {
+  display: block;
+  color: #94a3b8;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* Metrics Chart */
+.metrics-chart {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #334155;
+  flex: 1;
+}
+
+.metrics-chart h2 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #f1f5f9;
+}

@@ -1,5 +1,6 @@
-export function connectWebSocket(onMessage) {
-  const ws = new WebSocket('ws://localhost:8000/ws')
+export function connectWebSocket(onMessage, baseUrl) {
+  const wsUrl = `${baseUrl.replace(/^http/, 'ws')}/ws`
+  const ws = new WebSocket(wsUrl)
 
   ws.onopen = () => {
     console.log('WebSocket conectado')
@@ -16,7 +17,7 @@ export function connectWebSocket(onMessage) {
 
   ws.onclose = () => {
     console.log('WebSocket desconectado, reconectando en 3s...')
-    setTimeout(() => connectWebSocket(onMessage), 3000)
+    setTimeout(() => connectWebSocket(onMessage, baseUrl), 3000)
   }
 
   ws.onerror = (err) => {
