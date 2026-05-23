@@ -8,6 +8,7 @@ import { connectWebSocket } from './services/websocket'
 function App() {
   const [districts, setDistricts] = useState([])
   const [alerts, setAlerts] = useState([])
+  const [selectedDistrict, setSelectedDistrict] = useState(null)
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
   const refreshData = async () => {
@@ -59,6 +60,7 @@ function App() {
             consumo_kw: data.consumo_kw,
             capacidad_kw: data.capacidad_kw,
             porcentaje_uso: data.porcentaje,
+            percentage: data.porcentaje,
           }
           if (idx === -1) return [...prev, next]
           const copy = [...prev]
@@ -82,12 +84,17 @@ function App() {
         </section>
         <aside className="sidebar">
           <AlertPanel alerts={alerts} />
-          <MetricsChart />
+          <MetricsChart selectedDistrict={selectedDistrict} />
         </aside>
       </main>
       <section className="cards-section">
         {districts.map((d) => (
-          <DistrictCard key={d.district_id} district={d} />
+          <DistrictCard 
+            key={d.district_id} 
+            district={d}
+            isSelected={selectedDistrict === d.district_id}
+            onSelect={() => setSelectedDistrict(d.district_id)}
+          />
         ))}
       </section>
     </div>

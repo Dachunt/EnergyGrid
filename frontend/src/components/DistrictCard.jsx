@@ -1,6 +1,6 @@
 import React from 'react'
 
-function DistrictCard({ district }) {
+function DistrictCard({ district, isSelected, onSelect }) {
   const consumo = typeof district.consumo_kw === 'number' ? district.consumo_kw.toFixed(2) : '--'
   const capacidad = typeof district.capacidad_kw === 'number' ? district.capacidad_kw.toFixed(2) : '--'
   const porcentaje = typeof district.porcentaje_uso === 'number' ? district.porcentaje_uso.toFixed(1) : '--'
@@ -25,7 +25,15 @@ function DistrictCard({ district }) {
   }
 
   return (
-    <div className={`district-card district-card-${estado}`}>
+    <div 
+      className={`district-card district-card-${estado}${isSelected ? ' selected' : ''}`}
+      onClick={onSelect}
+      style={{
+        cursor: 'pointer',
+        transition: 'all 0.3s ease',
+        border: isSelected ? '2px solid #3b82f6' : '2px solid transparent',
+      }}
+    >
       <div className="card-header">
         <h3>{district.district_id || 'Distrito'}</h3>
         <span className="status-badge">{statusLabel}</span>

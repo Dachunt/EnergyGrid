@@ -68,6 +68,8 @@ services:
     environment:
       BACKEND_URL: http://energygrid-backend:8000
       INTERVAL_MS: ${SIMULATOR_INTERVAL_MS}
+    ports:
+      - "8001:8001"
     networks:
       - energygrid-net
     depends_on:
