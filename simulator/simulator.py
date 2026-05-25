@@ -31,6 +31,7 @@ simulator_state = {
     "overload_districts": set(),
     "stopped_substations": set(),
     "burst_multiplier": 1,  # 1 = normal, 2+ = burst mode
+    "redistribution_factors": {},  # {district: factor}  ej. {"San Salvador": 0.55}
 }
 
 logging.basicConfig(
@@ -46,9 +47,13 @@ def get_hora_virtual():
     return segundos / 60
 
 
-def calcular_consumo(capacidad, hora):
-    """Calcula consumo con variación horaria"""
-    if 18 <= hora <= 21:
+def calcular_consumo(capacidad, hora, distrito=None):
+    """Calcula consumo con variación horaria; respeta factor de redistribución si está activo"""
+    if distrito and distrito in simulator_state["redistribution_factors"]:
+        factor = simulator_state["redistribution_factors"][distrito]
+        factor += random.uniform(-0.03, 0.03)  # pequeña variación natural
+        factor = max(0.20, min(factor, 0.90))
+    elif 18 <= hora <= 21:
         factor = random.uniform(0.88, 0.98)
     elif 6 <= hora <= 9:
         factor = random.uniform(0.70, 0.85)
@@ -105,7 +110,7 @@ def loop_simulador():
                 consumo = inyectar_sobrecarga(sub)
                 logger.info(f"[OVERLOAD] {sub['id']} ({sub['distrito']}): {consumo} kW")
             else:
-                consumo = calcular_consumo(sub["capacidad"], hora)
+                consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
             
             # Enviar métrica
             enviar_metrica(sub, consumo)
@@ -332,6 +337,40 @@ async def invalid_timestamp(offset_days: int = Query(1)):
         )
 
 
+@app.post("/simulator/set-redistribution")
+async def set_redistribution(
+    district: str = Query(..., description="Distrito a reducir"),
+    factor: float = Query(0.55, description="Factor de consumo objetivo (0.0-0.9)"),
+):
+    """
+    Fuerza un factor de consumo bajo en un distrito (redistribución activa).
+    El simulador enviará consumos al factor indicado ±3% de variación natural.
+    """
+    distritos_validos = {sub["distrito"] for sub in SUBESTACIONES}
+    if district not in distritos_validos:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Distrito no válido. Válidos: {list(distritos_validos)}"},
+        )
+    factor = max(0.20, min(factor, 0.90))
+    simulator_state["redistribution_factors"][district] = factor
+    logger.info(f"[REDISTRIBUCION] Factor {factor:.0%} aplicado a: {district}")
+    return {
+        "event": "REDISTRIBUTION_SET",
+        "district": district,
+        "factor": factor,
+        "message": f"Consumo de {district} limitado al {factor:.0%} de capacidad",
+    }
+
+
+@app.post("/simulator/clear-redistribution")
+async def clear_redistribution(district: str = Query(...)):
+    """Quita la redistribución activa de un distrito, volviendo al ciclo normal."""
+    simulator_state["redistribution_factors"].pop(district, None)
+    logger.info(f"[REDISTRIBUCION] Redistribución eliminada para: {district}")
+    return {"event": "REDISTRIBUTION_CLEARED", "district": district}
+
+
 @app.post("/simulator/reset")
 async def reset_simulator():
     """Resetea el simulador al estado normal"""
@@ -339,6 +378,7 @@ async def reset_simulator():
     simulator_state["stopped_substations"].clear()
     simulator_state["peak_hour_active"] = False
     simulator_state["burst_multiplier"] = 1
+    simulator_state["redistribution_factors"].clear()
     
     logger.info("[RESET] Simulador resetado a estado normal")
     

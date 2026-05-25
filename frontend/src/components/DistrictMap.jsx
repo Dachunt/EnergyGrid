@@ -41,7 +41,7 @@ function getStatusColor(percentage) {
   return '#22c55e' // Verde - normal
 }
 
-function DistrictMap({ districts }) {
+function DistrictMap({ districts, redistributedDistricts = new Set() }) {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const markers = useRef({})
@@ -83,30 +83,37 @@ function DistrictMap({ districts }) {
     }
   }, [])
 
-  // Actualizar colores de marcadores cuando cambian los distritos
+  // Actualizar colores de marcadores cuando cambian los distritos o redistribuciones
   useEffect(() => {
     if (!map.current) return
 
     districts.forEach((district) => {
       const marker = markers.current[district.district_id]
       if (marker) {
+        const isRedistributed = redistributedDistricts.has(district.district_id)
         const color = getStatusColor(district.percentage || district.porcentaje_uso || 0)
         marker.setStyle({
           fillColor: color,
+          color: isRedistributed ? '#3b82f6' : '#000',
+          weight: isRedistributed ? 4 : 2,
+          dashArray: isRedistributed ? '6 3' : null,
         })
 
-        // Actualizar popup con información
+        const redistTag = isRedistributed
+          ? '<br/><span style="color:#3b82f6;font-weight:bold">⚡ Redistribuida</span>'
+          : ''
         const info = `
           <div style="font-size: 12px; text-align: center;">
             <strong>${district.district_id}</strong><br/>
             ${district.consumo_kw?.toFixed(2) || '--'} kW / ${district.capacidad_kw?.toFixed(2) || '--'} kW<br/>
             ${(district.percentage || district.porcentaje_uso || 0).toFixed(1)}%
+            ${redistTag}
           </div>
         `
         marker.setPopupContent(info)
       }
     })
-  }, [districts])
+  }, [districts, redistributedDistricts])
 
   if (mapError) {
     return (

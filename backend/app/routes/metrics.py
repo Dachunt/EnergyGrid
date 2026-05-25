@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.models.consumption import MetricPayload
 from app.services.alert_engine import analizar_metrica
 from app.services.structured_logger import log_event
+from app.services.metric_queue import enqueue
 
 router = APIRouter(prefix="/api", tags=["metrics"])
 
@@ -41,29 +42,74 @@ async def receive_metric(payload: MetricPayload, request: Request):
         notas = "sospecha_sql"
 
     pool = request.app.state.db
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            INSERT INTO consumo_temporal (
-                district_id,
-                substation_id,
-                consumo_kw,
-                capacidad_kw,
-                timestamp,
+    if pool is None:
+        enqueue({
+            "district_id": payload.district_id,
+            "substation_id": payload.substation_id,
+            "consumo_kw": payload.consumo_kw,
+            "capacidad_kw": payload.capacidad_kw,
+            "timestamp": ts,
+            "anomalia": anomalia,
+            "notas": notas,
+        })
+        porcentaje = (payload.consumo_kw / payload.capacidad_kw) * 100
+        data = {
+            "district_id": payload.district_id,
+            "substation_id": payload.substation_id,
+            "consumo_kw": payload.consumo_kw,
+            "capacidad_kw": payload.capacidad_kw,
+            "timestamp": ts.isoformat(),
+            "porcentaje_uso": porcentaje,
+        }
+        await analizar_metrica(data, pool)
+        return {"status": "queued", "porcentaje_uso": porcentaje}
+
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO consumo_temporal (
+                    district_id,
+                    substation_id,
+                    consumo_kw,
+                    capacidad_kw,
+                    timestamp,
+                    anomalia,
+                    notas
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id, porcentaje_uso::float8 AS porcentaje_uso
+                """,
+                payload.district_id,
+                payload.substation_id,
+                payload.consumo_kw,
+                payload.capacidad_kw,
+                ts,
                 anomalia,
-                notas
+                notas,
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, porcentaje_uso::float8 AS porcentaje_uso
-            """,
-            payload.district_id,
-            payload.substation_id,
-            payload.consumo_kw,
-            payload.capacidad_kw,
-            ts,
-            anomalia,
-            notas,
-        )
+    except Exception as exc:
+        log_event(logging.ERROR, event="DB_ERROR", error=str(exc), district_id=payload.district_id)
+        enqueue({
+            "district_id": payload.district_id,
+            "substation_id": payload.substation_id,
+            "consumo_kw": payload.consumo_kw,
+            "capacidad_kw": payload.capacidad_kw,
+            "timestamp": ts,
+            "anomalia": anomalia,
+            "notas": notas,
+        })
+        porcentaje = (payload.consumo_kw / payload.capacidad_kw) * 100
+        data = {
+            "district_id": payload.district_id,
+            "substation_id": payload.substation_id,
+            "consumo_kw": payload.consumo_kw,
+            "capacidad_kw": payload.capacidad_kw,
+            "timestamp": ts.isoformat(),
+            "porcentaje_uso": porcentaje,
+        }
+        await analizar_metrica(data, pool)
+        return {"status": "queued", "porcentaje_uso": porcentaje}
 
     porcentaje = row["porcentaje_uso"]
     data = {
