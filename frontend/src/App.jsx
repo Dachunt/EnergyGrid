@@ -5,7 +5,62 @@ import AlertPanel from './components/AlertPanel'
 import MetricsChart from './components/MetricsChart'
 import { connectWebSocket } from './services/websocket'
 
-function App() {
+// Error Boundary
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Error capturado por ErrorBoundary:', error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            width: '100%',
+            height: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#0f172a',
+            color: '#ef4444',
+            flexDirection: 'column',
+            padding: '2rem',
+          }}
+        >
+          <h1>Error en la aplicación</h1>
+          <p>{this.state.error?.message}</p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              marginTop: '1rem',
+              padding: '0.5rem 1.5rem',
+              backgroundColor: '#3b82f6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '0.5rem',
+              cursor: 'pointer',
+            }}
+          >
+            Recargar página
+          </button>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+function AppContent() {
   const [districts, setDistricts] = useState([])
   const [alerts, setAlerts] = useState([])
   const [selectedDistrict, setSelectedDistrict] = useState(null)
@@ -98,6 +153,14 @@ function App() {
         ))}
       </section>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   )
 }
 

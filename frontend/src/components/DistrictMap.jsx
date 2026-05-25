@@ -1,6 +1,14 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+
+// Fix para los iconos de leaflet en Vite
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+})
 
 // Datos de los distritos en El Salvador (coordenadas aproximadas)
 const DISTRICTS_GEO = {
@@ -37,35 +45,42 @@ function DistrictMap({ districts }) {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const markers = useRef({})
+  const [mapError, setMapError] = useState(null)
 
   // Inicializar mapa
   useEffect(() => {
-    if (map.current) return
+    try {
+      if (map.current) return
+      if (!mapContainer.current) return
 
-    // Crear mapa centrado en El Salvador
-    map.current = L.map(mapContainer.current).setView([13.7942, -88.8965], 9)
+      // Crear mapa centrado en El Salvador
+      map.current = L.map(mapContainer.current).setView([13.7942, -88.8965], 9)
 
-    // Agregar tile layer (OpenStreetMap)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map.current)
+      // Agregar tile layer (OpenStreetMap)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(map.current)
 
-    // Crear marcadores para cada distrito
-    Object.entries(DISTRICTS_GEO).forEach(([districtName, geoData]) => {
-      const marker = L.circleMarker([geoData.lat, geoData.lng], {
-        radius: 25,
-        fillColor: '#22c55e',
-        color: '#000',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.8,
+      // Crear marcadores para cada distrito
+      Object.entries(DISTRICTS_GEO).forEach(([districtName, geoData]) => {
+        const marker = L.circleMarker([geoData.lat, geoData.lng], {
+          radius: 25,
+          fillColor: '#22c55e',
+          color: '#000',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.8,
+        })
+          .addTo(map.current)
+          .bindPopup(districtName)
+
+        markers.current[districtName] = marker
       })
-        .addTo(map.current)
-        .bindPopup(districtName)
-
-      markers.current[districtName] = marker
-    })
+    } catch (error) {
+      console.error('Error inicializando mapa:', error)
+      setMapError(error.message)
+    }
   }, [])
 
   // Actualizar colores de marcadores cuando cambian los distritos
@@ -75,7 +90,7 @@ function DistrictMap({ districts }) {
     districts.forEach((district) => {
       const marker = markers.current[district.district_id]
       if (marker) {
-        const color = getStatusColor(district.percentage)
+        const color = getStatusColor(district.percentage || district.porcentaje_uso || 0)
         marker.setStyle({
           fillColor: color,
         })
@@ -84,14 +99,38 @@ function DistrictMap({ districts }) {
         const info = `
           <div style="font-size: 12px; text-align: center;">
             <strong>${district.district_id}</strong><br/>
-            ${district.consumo_kw} kW / ${district.capacidad_kw} kW<br/>
-            ${district.percentage.toFixed(1)}%
+            ${district.consumo_kw?.toFixed(2) || '--'} kW / ${district.capacidad_kw?.toFixed(2) || '--'} kW<br/>
+            ${(district.percentage || district.porcentaje_uso || 0).toFixed(1)}%
           </div>
         `
         marker.setPopupContent(info)
       }
     })
   }, [districts])
+
+  if (mapError) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#0f172a',
+          color: '#ef4444',
+          padding: '2rem',
+          textAlign: 'center',
+          borderRadius: '0.5rem',
+        }}
+      >
+        <div>
+          <h3>Error cargando mapa</h3>
+          <p>{mapError}</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -116,6 +155,7 @@ function DistrictMap({ districts }) {
           flex: 1,
           width: '100%',
           minHeight: '400px',
+          backgroundColor: '#0f172a',
         }}
       />
       <div style={{ padding: '0.75rem', backgroundColor: '#0f172a', borderTop: '1px solid #334155', fontSize: '0.85rem', color: '#cbd5e1' }}>
