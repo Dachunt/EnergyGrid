@@ -3,6 +3,8 @@ import logging
 from app.websocket_manager import manager
 from app.services.load_balancer import redistribuir_carga
 from app.services.structured_logger import log_event
+from app.services.spike_detector import detectar_pico
+from app.services.notification_service import notificar_pico
 
 
 async def analizar_metrica(data: dict, pool):
@@ -68,6 +70,11 @@ async def analizar_metrica(data: dict, pool):
             substation_id=data["substation_id"],
             porcentaje=round(porcentaje, 2),
         )
+
+    # ── Detección de picos de energía ─────────────────────────────────────
+    spike = await detectar_pico(data, pool)
+    if spike:
+        await notificar_pico(spike, pool)
 
 
 async def crear_alerta(pool, district_id: str, tipo: str, descripcion: str) -> int:
