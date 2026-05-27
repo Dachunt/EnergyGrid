@@ -4,10 +4,12 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import metrics, districts
+from app.routes.monitoring import router as monitoring_router
 from app.websocket_manager import router as ws_router
 from app.db import init_db, close_db
 from app.logging_config import setup_logging
 from app.services.metric_queue import queue_worker
+from app.services.monitoring_orchestrator import MonitoringOrchestrator
 
 setup_logging()
 logger = logging.getLogger("energygrid")
@@ -24,6 +26,7 @@ app.add_middleware(
 
 app.include_router(metrics.router)
 app.include_router(districts.router)
+app.include_router(monitoring_router)
 app.include_router(ws_router)
 
 
@@ -48,10 +51,23 @@ async def log_requests(request: Request, call_next):
 async def startup():
     await init_db(app)
     asyncio.create_task(queue_worker(app))
+    
+    # Inicializar monitoreo
+    logger.info("Initializing monitoring system...")
+    monitoring = MonitoringOrchestrator()
+    app.state.monitoring = monitoring
+    await monitoring.initialize_monitoring()
+    asyncio.create_task(monitoring.start_continuous_monitoring())
+    logger.info("Monitoring system initialized and running")
 
 @app.on_event("shutdown")
 async def shutdown():
     await close_db(app)
+    
+    # Detener monitoreo
+    if hasattr(app.state, "monitoring"):
+        await app.state.monitoring.stop_monitoring()
+        logger.info("Monitoring system stopped")
 
 @app.get("/health")
 async def health():
