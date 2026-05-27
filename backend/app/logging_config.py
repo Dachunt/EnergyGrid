@@ -1,9 +1,13 @@
 import logging
 import sys
+import os
 from logging.handlers import RotatingFileHandler
 from pythonjsonlogger import jsonlogger
 
-LOG_FILE = "/app/logs/energygrid.log"
+# Crear directorio de logs si no existe
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "energygrid.log")
 
 
 def setup_logging():
