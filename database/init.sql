@@ -1,3 +1,7 @@
+-- The database will be created by docker-entrypoint-initdb.d automatically
+-- before this script runs, so we just need to create tables and data
+
+-- Now create tables
 CREATE TABLE IF NOT EXISTS consumo_temporal (
     id              SERIAL PRIMARY KEY,
     district_id     VARCHAR(50) NOT NULL,

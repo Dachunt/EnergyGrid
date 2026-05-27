@@ -1,8 +1,11 @@
 import asyncio
 import time
 import logging
+from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.routes import metrics, districts
 from app.routes.monitoring import router as monitoring_router
 from app.websocket_manager import router as ws_router
@@ -14,7 +17,32 @@ from app.services.monitoring_orchestrator import MonitoringOrchestrator
 setup_logging()
 logger = logging.getLogger("energygrid")
 
-app = FastAPI(title="EnergyGrid Backend")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("[STARTUP] Initializing database...")
+    await init_db(app)
+    print("[STARTUP] Database initialized")
+    
+    print("[STARTUP] Starting queue worker...")
+    asyncio.create_task(queue_worker(app))
+    print("[STARTUP] Queue worker started")
+    
+    print("[STARTUP] Application started successfully!")
+    
+    yield
+    
+    # Shutdown
+    print("[SHUTDOWN] Closing database...")
+    await close_db(app)
+    print("[SHUTDOWN] Application shutdown complete")
+
+app = FastAPI(title="EnergyGrid Backend", lifespan=lifespan)
+
+# Montar archivos estáticos
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,28 +75,24 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-@app.on_event("startup")
-async def startup():
-    await init_db(app)
-    asyncio.create_task(queue_worker(app))
-    
-    # Inicializar monitoreo
-    logger.info("Initializing monitoring system...")
-    monitoring = MonitoringOrchestrator()
-    app.state.monitoring = monitoring
-    await monitoring.initialize_monitoring()
-    asyncio.create_task(monitoring.start_continuous_monitoring())
-    logger.info("Monitoring system initialized and running")
-
-@app.on_event("shutdown")
-async def shutdown():
-    await close_db(app)
-    
-    # Detener monitoreo
-    if hasattr(app.state, "monitoring"):
-        await app.state.monitoring.stop_monitoring()
-        logger.info("Monitoring system stopped")
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/")
+async def root():
+    """Serve the monitoring dashboard"""
+    from fastapi.responses import FileResponse
+    dashboard_path = Path(__file__).parent / "static" / "dashboard.html"
+    if dashboard_path.exists():
+        return FileResponse(dashboard_path)
+    return {"message": "Dashboard not found"}
+
+@app.get("/dashboard")
+async def dashboard():
+    """Serve the monitoring dashboard at /dashboard"""
+    from fastapi.responses import FileResponse
+    dashboard_path = Path(__file__).parent / "static" / "dashboard.html"
+    if dashboard_path.exists():
+        return FileResponse(dashboard_path)
+    return {"message": "Dashboard not found"}

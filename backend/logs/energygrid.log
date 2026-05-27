@@ -1,0 +1,50 @@
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Initializing monitoring system..."}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "monitoring_orchestrator", "message": "Initializing monitoring system..."}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom endpoint added: main_api"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Monitoring system initialized and running"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "monitoring_orchestrator", "message": "Starting continuous monitoring"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:30:52.632559"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 964.6}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:31:24.598757"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:31:54.875054"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 680.89}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:32:25.187494"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:32:55.719043"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 573.45}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:33:26.013265"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:33:56.457859"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 593.63}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:34:26.755054"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:34:57.056242"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 566.69}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:35:27.337851"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Request completed", "method": "GET", "path": "/", "status": 404, "duration_ms": 53.31}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Request completed", "method": "GET", "path": "/favicon.ico", "status": 404, "duration_ms": 0.77}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:35:57.642919"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 739.14}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:36:27.934022"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:36:58.217147"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 1182.24}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:37:29.039780"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Initializing monitoring system..."}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "monitoring_orchestrator", "message": "Initializing monitoring system..."}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom endpoint added: main_api"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Monitoring system initialized and running"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "monitoring_orchestrator", "message": "Starting continuous monitoring"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:49:15.812194"}
+{"timestamp": null, "level": null, "name": "httpx", "module": "_client", "message": "HTTP Request: GET http://localhost:8000/health \"HTTP/1.1 200 OK\""}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom check: main_api", "endpoint": "main_api", "status": "up", "response_time_ms": 957.01}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:49:48.040345"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Initializing monitoring system..."}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "monitoring_orchestrator", "message": "Initializing monitoring system..."}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "pingdom_guard", "message": "Pingdom endpoint added: main_api"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "main", "message": "Monitoring system initialized and running"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "monitoring_orchestrator", "message": "Starting continuous monitoring"}
+{"timestamp": null, "level": null, "name": "energygrid", "module": "munin_monitor", "message": "Munin metrics collected", "metrics_timestamp": "2026-05-27T04:51:40.652940"}

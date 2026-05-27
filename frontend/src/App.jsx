@@ -173,6 +173,15 @@ function AppContent() {
               ● Activo — redistribuye al detectar &gt;95%
             </span>
           )}
+          <a 
+            href="http://localhost:8000/" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="btn-dashboard"
+            title="Abre el dashboard de monitoreo en una nueva pestaña"
+          >
+            📊 Dashboard
+          </a>
         </div>
       </header>
 

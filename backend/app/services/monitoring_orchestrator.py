@@ -36,6 +36,42 @@ class MonitoringOrchestrator:
             timeout=5,
             expected_status=200,
         )
+        
+        # Agregar más endpoints para monitoreo completo
+        self.pingdom.add_endpoint(
+            "dashboard",
+            "http://localhost:8000/",
+            timeout=5,
+            expected_status=200,
+        )
+        
+        self.pingdom.add_endpoint(
+            "monitoring_dashboard_api",
+            "http://localhost:8000/api/monitoring/dashboard",
+            timeout=5,
+            expected_status=200,
+        )
+        
+        self.pingdom.add_endpoint(
+            "munin_metrics_api",
+            "http://localhost:8000/api/monitoring/munin/metrics",
+            timeout=5,
+            expected_status=200,
+        )
+        
+        self.pingdom.add_endpoint(
+            "pingdom_status_api",
+            "http://localhost:8000/api/monitoring/pingdom/status",
+            timeout=5,
+            expected_status=200,
+        )
+        
+        self.pingdom.add_endpoint(
+            "slow_queries_api",
+            "http://localhost:8000/api/monitoring/queries/slow",
+            timeout=5,
+            expected_status=200,
+        )
 
     async def start_continuous_monitoring(self):
         """Inicia monitoreo continuo en background"""

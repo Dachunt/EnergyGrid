@@ -522,3 +522,38 @@ body {
   margin-bottom: 1rem;
   color: #f1f5f9;
 }
+
+/* Dashboard Button */
+.btn-dashboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.btn-dashboard:hover {
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-dashboard:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .btn-dashboard {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.75rem;
+  }
+}
