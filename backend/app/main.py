@@ -1,3 +1,4 @@
+import asyncio
 import time
 import logging
 from fastapi import FastAPI, Request
@@ -6,6 +7,7 @@ from app.routes import metrics, districts
 from app.websocket_manager import router as ws_router
 from app.db import init_db, close_db
 from app.logging_config import setup_logging
+from app.services.metric_queue import queue_worker
 
 setup_logging()
 logger = logging.getLogger("energygrid")
@@ -45,6 +47,7 @@ async def log_requests(request: Request, call_next):
 @app.on_event("startup")
 async def startup():
     await init_db(app)
+    asyncio.create_task(queue_worker(app))
 
 @app.on_event("shutdown")
 async def shutdown():

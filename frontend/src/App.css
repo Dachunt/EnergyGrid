@@ -20,11 +20,86 @@ body {
   padding: 1rem 2rem;
   background: #1e293b;
   border-bottom: 1px solid #334155;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.header-left h1 {
+  font-size: 1.5rem;
+  color: #22c55e;
+}
+
+.header-left p {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mode-label {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.mode-toggle {
+  display: flex;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mode-btn {
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.mode-btn:hover {
+  background: rgba(255,255,255,0.06);
+  color: #e2e8f0;
+}
+
+.mode-btn-active {
+  background: #1e40af;
+  color: #fff;
+}
+
+.mode-btn-auto.mode-btn-active {
+  background: #15803d;
+}
+
+.mode-status {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+}
+
+.mode-status-auto {
+  background: rgba(34,197,94,0.12);
+  color: #86efac;
+  border: 1px solid #15803d;
 }
 
 .app-header h1 {
   font-size: 1.5rem;
   color: #22c55e;
+}
+
+.manual-panel {
+  border-color: #3b82f6;
+  background: rgba(59,130,246,0.08);
 }
 
 .app-main {
@@ -170,6 +245,43 @@ body {
   color: #64748b;
 }
 
+.card-actions {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #1e293b;
+}
+
+.btn-card-action {
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.2s;
+}
+
+.btn-card-redistribute {
+  background: rgba(59,130,246,0.12);
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+
+.btn-card-redistribute:hover {
+  background: rgba(59,130,246,0.28);
+}
+
+.btn-card-undo {
+  background: rgba(100,116,139,0.15);
+  border-color: #475569;
+  color: #94a3b8;
+}
+
+.btn-card-undo:hover {
+  background: rgba(100,116,139,0.3);
+  color: #e2e8f0;
+}
+
 /* Alert Panel */
 .alert-panel {
   background: #1e293b;
@@ -210,6 +322,15 @@ body {
   border-left-color: #ef4444;
 }
 
+.alert-blink {
+  animation: alert-flash 1.2s ease-in-out infinite;
+}
+
+@keyframes alert-flash {
+  0%, 100% { background: rgba(239, 68, 68, 0.10); }
+  50%       { background: rgba(239, 68, 68, 0.28); }
+}
+
 .alert-warning {
   background: rgba(249, 115, 22, 0.1);
   border-left-color: #f97316;
@@ -225,6 +346,149 @@ body {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn-resolve {
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid #22c55e;
+  border-radius: 4px;
+  color: #22c55e;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-resolve:hover {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+/* Redistribution banner */
+.redistribucion-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin: 0 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  animation: redistribucion-in 0.4s ease;
+}
+
+@keyframes redistribucion-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.redistribucion-icon {
+  font-size: 1.6rem;
+  flex-shrink: 0;
+}
+
+.redistribucion-content {
+  flex: 1;
+}
+
+.redistribucion-content strong {
+  display: block;
+  color: #f59e0b;
+  margin-bottom: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.redistribucion-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.3rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.redistribucion-list li {
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  background: rgba(255,255,255,0.06);
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-apply-redistribucion {
+  padding: 0.15rem 0.5rem;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  color: #93c5fd;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-apply-redistribucion:hover {
+  background: rgba(59, 130, 246, 0.4);
+}
+
+.redistribucion-applied {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.redistribucion-applied-msg {
+  font-size: 0.85rem;
+  color: #86efac;
+  margin: 0.4rem 0 0.2rem;
+}
+
+.btn-undo-redistribucion {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.btn-undo-redistribucion:hover {
+  color: #e2e8f0;
+}
+
+/* Badge en district card */
+.redistribucion-badge {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  color: #93c5fd;
+  margin-left: 0.25rem;
+}
+
+.redistribucion-content small {
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.btn-close-redistribucion {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.btn-close-redistribucion:hover {
+  color: #e2e8f0;
 }
 
 .alert-icon {

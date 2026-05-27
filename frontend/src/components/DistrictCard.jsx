@@ -1,6 +1,6 @@
 import React from 'react'
 
-function DistrictCard({ district, isSelected, onSelect }) {
+function DistrictCard({ district, isSelected, isRedistributed, onSelect, onRedistribute, onClearRedistribution }) {
   const consumo = typeof district.consumo_kw === 'number' ? district.consumo_kw.toFixed(2) : '--'
   const capacidad = typeof district.capacidad_kw === 'number' ? district.capacidad_kw.toFixed(2) : '--'
   const porcentaje = typeof district.porcentaje_uso === 'number' ? district.porcentaje_uso.toFixed(1) : '--'
@@ -37,6 +37,9 @@ function DistrictCard({ district, isSelected, onSelect }) {
       <div className="card-header">
         <h3>{district.district_id || 'Distrito'}</h3>
         <span className="status-badge">{statusLabel}</span>
+        {isRedistributed && (
+          <span className="redistribucion-badge">⚡ Redistribuida</span>
+        )}
       </div>
       <div className="card-body">
         <div className="metric-item">
@@ -62,6 +65,23 @@ function DistrictCard({ district, isSelected, onSelect }) {
           <small>Subestación: {district.substation_id}</small>
         </div>
       )}
+      <div className="card-actions">
+        {isRedistributed ? (
+          <button
+            className="btn-card-action btn-card-undo"
+            onClick={(e) => { e.stopPropagation(); onClearRedistribution && onClearRedistribution() }}
+          >
+            ↩ Restaurar carga normal
+          </button>
+        ) : (
+          <button
+            className="btn-card-action btn-card-redistribute"
+            onClick={(e) => { e.stopPropagation(); onRedistribute && onRedistribute() }}
+          >
+            ⚡ Redistribuir carga
+          </button>
+        )}
+      </div>
     </div>
   )
 }
