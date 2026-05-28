@@ -1,6 +1,8 @@
 ﻿import os
 import asyncpg
 import asyncio
+from dotenv import load_dotenv
+load_dotenv()
 
 
 async def init_db(app):

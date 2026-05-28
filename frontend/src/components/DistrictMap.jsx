@@ -10,28 +10,11 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 })
 
-// Datos de los distritos en El Salvador (coordenadas aproximadas)
 const DISTRICTS_GEO = {
-  'San Salvador': {
-    lat: 13.6929,
-    lng: -89.2182,
-    substations: ['SSS001', 'SSS002'],
-  },
-  'Antiguo Cuscatlán': {
-    lat: 13.7114,
-    lng: -89.2964,
-    substations: ['SAN001'],
-  },
-  'Santa Tecla': {
-    lat: 13.6816,
-    lng: -89.2833,
-    substations: ['STC001'],
-  },
-  'Soyapango': {
-    lat: 13.6667,
-    lng: -89.1833,
-    substations: ['SAL001'],
-  },
+  'San Salvador':       { lat: 13.6929, lng: -89.2182 },
+  'Antiguo Cuscatlan':  { lat: 13.7114, lng: -89.2964 },
+  'Santa Tecla':         { lat: 13.6816, lng: -89.2833 },
+  'Soyapango':           { lat: 13.6667, lng: -89.1833 },
 }
 
 function getStatusColor(percentage) {
@@ -41,7 +24,7 @@ function getStatusColor(percentage) {
   return '#22c55e' // Verde - normal
 }
 
-function DistrictMap({ districts, redistributedDistricts = new Set() }) {
+function DistrictMap({ districts, redistributedDistricts = new Set(), onSelectDistrict }) {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const markers = useRef({})
@@ -62,55 +45,102 @@ function DistrictMap({ districts, redistributedDistricts = new Set() }) {
         maxZoom: 19,
       }).addTo(map.current)
 
-      // Crear marcadores para cada distrito
-      Object.entries(DISTRICTS_GEO).forEach(([districtName, geoData]) => {
-        const marker = L.circleMarker([geoData.lat, geoData.lng], {
-          radius: 25,
-          fillColor: '#22c55e',
-          color: '#000',
-          weight: 2,
-          opacity: 1,
-          fillOpacity: 0.8,
-        })
-          .addTo(map.current)
-          .bindPopup(districtName)
-
-        markers.current[districtName] = marker
-      })
     } catch (error) {
       console.error('Error inicializando mapa:', error)
       setMapError(error.message)
     }
   }, [])
 
-  // Actualizar colores de marcadores cuando cambian los distritos o redistribuciones
+  function getCoord(district, field) {
+    return district[field] || (DISTRICTS_GEO[district.district_id] && DISTRICTS_GEO[district.district_id][field === 'latitud' || field === 'lat' ? 'lat' : 'lng'])
+  }
+
   useEffect(() => {
     if (!map.current) return
 
-    districts.forEach((district) => {
-      const marker = markers.current[district.district_id]
-      if (marker) {
-        const isRedistributed = redistributedDistricts.has(district.district_id)
-        const color = getStatusColor(district.percentage || district.porcentaje_uso || 0)
-        marker.setStyle({
-          fillColor: color,
-          color: isRedistributed ? '#3b82f6' : '#000',
-          weight: isRedistributed ? 4 : 2,
-          dashArray: isRedistributed ? '6 3' : null,
-        })
+    const seen = new Set()
 
-        const redistTag = isRedistributed
-          ? '<br/><span style="color:#3b82f6;font-weight:bold">⚡ Redistribuida</span>'
-          : ''
-        const info = `
-          <div style="font-size: 12px; text-align: center;">
-            <strong>${district.district_id}</strong><br/>
-            ${district.consumo_kw?.toFixed(2) || '--'} kW / ${district.capacidad_kw?.toFixed(2) || '--'} kW<br/>
-            ${(district.percentage || district.porcentaje_uso || 0).toFixed(1)}%
-            ${redistTag}
-          </div>
-        `
-        marker.setPopupContent(info)
+    districts.forEach((district) => {
+      const distId = district.district_id
+      if (seen.has(distId)) return
+      seen.add(distId)
+
+      const dLat = getCoord(district, 'latitud') || getCoord(district, 'lat')
+      const dLng = getCoord(district, 'longitud') || getCoord(district, 'lng')
+      if (!dLat || !dLng) return
+
+      const isRedistributed = redistributedDistricts.has(distId)
+      const pct = district.porcentaje_uso || 0
+      const color = getStatusColor(pct)
+
+      let marker = markers.current[distId]
+      if (!marker) {
+        marker = L.circleMarker([dLat, dLng], {
+          radius: 25, fillColor: color, color: '#000', weight: 2, opacity: 1, fillOpacity: 0.8,
+        })
+          .addTo(map.current)
+          .on('click', () => { if (onSelectDistrict) onSelectDistrict(distId) })
+        markers.current[distId] = marker
+      }
+
+      marker.setStyle({
+        fillColor: color,
+        color: isRedistributed ? '#3b82f6' : '#000',
+        weight: isRedistributed ? 4 : 2,
+        dashArray: isRedistributed ? '6 3' : null,
+      })
+
+      let subsHtml = ''
+      if (district.subestaciones && district.subestaciones.length > 0) {
+        subsHtml = '<hr style="margin:4px 0;border-color:#334155"/>' +
+          district.subestaciones.map(s =>
+            `<div style="font-size:11px;display:flex;justify-content:space-between;gap:6px">
+              <span>${s.substation_id}</span>
+              <span>${s.consumo_kw?.toFixed(1)||'--'} / ${s.capacidad_kw?.toFixed(1)||'--'} kW (${(s.porcentaje_uso||0).toFixed(1)}%)</span>
+            </div>`
+          ).join('')
+      }
+
+      marker.setPopupContent(`
+        <div style="font-size:12px;text-align:center">
+          <strong>${distId}</strong><br/>
+          ${district.consumo_kw?.toFixed(2)||'--'} kW / ${district.capacidad_kw?.toFixed(2)||'--'} kW &nbsp; ${pct.toFixed(1)}%
+          ${isRedistributed ? '<br/><span style="color:#3b82f6;font-weight:bold">⚡ Redistribuida</span>' : ''}
+          ${subsHtml}
+        </div>
+      `)
+
+      // substation markers
+      if (district.subestaciones) {
+        district.subestaciones.forEach(s => {
+          const sLat = s.latitud, sLng = s.longitud
+          if (!sLat || !sLng) return
+          const sId = s.substation_id
+          let sMarker = markers.current[sId]
+          if (!sMarker) {
+            sMarker = L.circleMarker([sLat, sLng], {
+              radius: 10, fillColor: '#64748b', color: '#1e293b', weight: 2, opacity: 1, fillOpacity: 0.9,
+            })
+              .addTo(map.current)
+              .bindPopup(`
+                <div style="font-size:11px;text-align:center">
+                  <strong>${sId}</strong><br/>
+                  ${s.consumo_kw?.toFixed(1)||'--'} / ${s.capacidad_kw?.toFixed(1)||'--'} kW<br/>
+                  ${(s.porcentaje_uso||0).toFixed(1)}%
+                </div>
+              `)
+            markers.current[sId] = sMarker
+          }
+          const sColor = getStatusColor(s.porcentaje_uso || 0)
+          sMarker.setStyle({ fillColor: sColor })
+          sMarker.setPopupContent(`
+            <div style="font-size:11px;text-align:center">
+              <strong>${sId}</strong><br/>
+              ${s.consumo_kw?.toFixed(1)||'--'} / ${s.capacidad_kw?.toFixed(1)||'--'} kW<br/>
+              ${(s.porcentaje_uso||0).toFixed(1)}%
+            </div>
+          `)
+        })
       }
     })
   }, [districts, redistributedDistricts])

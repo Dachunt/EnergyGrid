@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EnergyGrid - Dashboard de Monitoreo</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:#0f172a; min-height:100vh; padding:16px; color:#e2e8f0; }
+        .container { max-width:1500px; margin:0 auto; }
+
+        /* ── HEADER ── */
+        .header { background:#1e293b; padding:20px 24px; border-radius:12px; margin-bottom:20px; border:1px solid #334155; }
+        .header-top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+        .header-left h1 { font-size:1.6em; color:#22c55e; }
+        .header-left p { color:#94a3b8; font-size:0.85em; margin-top:2px; }
+        .header-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+
+        .connection-status { display:flex; align-items:center; gap:6px; font-size:0.78em; padding:5px 10px; border-radius:6px; background:rgba(255,255,255,0.04); border:1px solid #334155; }
+        .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+        .status-dot.online { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,0.6); animation:pulse-dot 1.5s ease-in-out infinite; }
+        .status-dot.offline { background:#ef4444; }
+        @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+        .update-info { display:flex; align-items:center; gap:6px; font-size:0.75em; color:#64748b; padding:5px 10px; border-radius:6px; background:rgba(255,255,255,0.03); border:1px solid #1e293b; }
+        .ctrls { display:flex; gap:6px; flex-wrap:wrap; }
+        .ctrl-btn { padding:6px 12px; background:transparent; border:1px solid #334155; border-radius:5px; color:#94a3b8; font-size:0.8em; cursor:pointer; transition:all 0.2s; }
+        .ctrl-btn:hover { background:rgba(255,255,255,0.06); color:#e2e8f0; }
+        .ctrl-btn.active { background:#1e40af; color:#fff; border-color:#3b82f6; }
+        .refresh-btn { padding:6px 16px; background:#22c55e; border:none; border-radius:5px; color:#052e16; font-size:0.8em; font-weight:600; cursor:pointer; transition:all 0.2s; }
+        .refresh-btn:hover { background:#16a34a; }
+
+        /* ── SUMMARY BAR ── */
+        .summary-bar { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid #334155; }
+        .s-item { display:flex; flex-direction:column; align-items:center; padding:8px 16px; background:rgba(255,255,255,0.04); border:1px solid #334155; border-radius:8px; min-width:80px; }
+        .s-label { font-size:0.62em; text-transform:uppercase; color:#64748b; letter-spacing:0.05em; margin-bottom:2px; }
+        .s-value { font-size:1.1em; font-weight:700; color:#e2e8f0; }
+        .s-value.warn { color:#f59e0b; }
+        .s-value.danger { color:#ef4444; }
+        .s-item.crit { border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.08); }
+        .s-item.warn-box { border-color:rgba(245,158,11,0.3); background:rgba(245,158,11,0.08); }
+
+        /* ── TABS ── */
+        .tabs { display:flex; gap:0; margin-bottom:20px; background:#1e293b; border-radius:8px; border:1px solid #334155; overflow:hidden; }
+        .tab { padding:10px 20px; background:transparent; border:none; color:#64748b; font-size:0.85em; cursor:pointer; transition:all 0.2s; border-bottom:2px solid transparent; }
+        .tab:hover { color:#e2e8f0; background:rgba(255,255,255,0.03); }
+        .tab.active { color:#22c55e; border-bottom-color:#22c55e; background:rgba(34,197,94,0.06); font-weight:600; }
+        .tab-badge { display:inline-block; background:#334155; color:#94a3b8; font-size:0.7em; padding:1px 6px; border-radius:8px; margin-left:4px; }
+        .tab-badge.danger { background:rgba(239,68,68,0.2); color:#ef4444; }
+
+        /* ── GRID ── */
+        .dashboard-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:14px; margin-bottom:20px; }
+        .card { background:#1e293b; border-radius:10px; padding:18px; border:1px solid #334155; transition:transform 0.2s,box-shadow 0.2s; cursor:pointer; }
+        .card:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,0.3); }
+        .card.crit { border-color:rgba(239,68,68,0.4); box-shadow:0 0 16px rgba(239,68,68,0.08); }
+        .card.warn { border-color:rgba(245,158,11,0.4); }
+        .card.expanded { grid-column:1 / -1; cursor:default; }
+
+        .card-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #334155; }
+        .card-title { font-size:1.05em; font-weight:700; color:#f1f5f9; }
+        .card-badge { font-size:0.72em; padding:3px 8px; border-radius:4px; font-weight:600; }
+        .card-badge.normal { background:rgba(34,197,94,0.12); color:#86efac; border:1px solid rgba(34,197,94,0.2); }
+        .card-badge.alto { background:rgba(234,179,8,0.12); color:#fde047; border:1px solid rgba(234,179,8,0.2); }
+        .card-badge.advertencia { background:rgba(249,115,22,0.12); color:#fdba74; border:1px solid rgba(249,115,22,0.2); }
+        .card-badge.critico { background:rgba(239,68,68,0.12); color:#fca5a5; border:1px solid rgba(239,68,68,0.2); animation:pulse-card 1.5s infinite; }
+        @keyframes pulse-card { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+        .card-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px; }
+        .m-item { text-align:center; }
+        .m-label { font-size:0.7em; color:#64748b; text-transform:uppercase; }
+        .m-value { font-size:1em; font-weight:700; margin-top:2px; }
+
+        .pbar { width:100%; height:6px; background:#0f172a; border-radius:3px; overflow:hidden; margin:6px 0 10px; }
+        .pfill { height:100%; border-radius:3px; transition:width 0.4s; }
+        .pfill.good { background:linear-gradient(90deg,#22c55e,#16a34a); }
+        .pfill.warn { background:linear-gradient(90deg,#eab308,#f59e0b); }
+        .pfill.danger { background:linear-gradient(90deg,#f97316,#ef4444); }
+
+        /* ── SPARKLINE ── */
+        .sparkline-wrap { margin:6px 0 4px; }
+        .sparkline-wrap svg { display:block; width:100%; height:40px; }
+        .sparkline-label { font-size:0.65em; color:#64748b; text-align:center; }
+
+        /* ── SUBSTATIONS ── */
+        .subs { margin-top:10px; padding-top:10px; border-top:1px solid #334155; }
+        .subs-title { font-size:0.72em; color:#64748b; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
+        .sub-item { display:flex; justify-content:space-between; padding:3px 0; font-size:0.78em; border-top:1px solid #1e293b; }
+        .sub-id { color:#94a3b8; }
+        .sub-val { font-weight:500; }
+        .sub-val.good { color:#22c55e; }
+        .sub-val.warn { color:#eab308; }
+        .sub-val.danger { color:#ef4444; }
+
+        /* ── EXPANDED DETAIL ── */
+        .detail-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px; }
+        @media(max-width:768px){.detail-row{grid-template-columns:1fr;}}
+        .detail-chart-wrap { background:#0f172a; border-radius:8px; padding:14px; border:1px solid #1e293b; }
+        .detail-chart-wrap h4 { font-size:0.85em; color:#94a3b8; margin-bottom:8px; }
+        .detail-chart-wrap svg { width:100%; height:200px; display:block; }
+
+        .detail-table { background:#0f172a; border-radius:8px; padding:14px; border:1px solid #1e293b; overflow-x:auto; }
+        .detail-table h4 { font-size:0.85em; color:#94a3b8; margin-bottom:8px; }
+        .detail-table table { width:100%; border-collapse:collapse; font-size:0.82em; }
+        .detail-table th { text-align:left; padding:6px 8px; color:#64748b; font-weight:600; text-transform:uppercase; font-size:0.72em; border-bottom:1px solid #334155; }
+        .detail-table td { padding:6px 8px; border-bottom:1px solid #1e293b; color:#cbd5e1; }
+
+        .detail-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+        .detail-stat { text-align:center; padding:8px; background:#0f172a; border-radius:6px; border:1px solid #1e293b; }
+        .detail-stat .ds-label { font-size:0.65em; color:#64748b; text-transform:uppercase; }
+        .detail-stat .ds-value { font-size:1em; font-weight:700; margin-top:2px; }
+
+        /* ── ALERTS ── */
+        .alerts-section { background:#1e293b; border-radius:10px; padding:18px; border:1px solid #334155; margin-bottom:20px; }
+        .alerts-title { font-size:1.05em; font-weight:700; color:#f1f5f9; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+        .alert-item { padding:10px 14px; border-radius:6px; margin-bottom:6px; border-left:3px solid; font-size:0.85em; }
+        .alert-item.crit { background:rgba(239,68,68,0.08); border-left-color:#ef4444; }
+        .alert-item.warning { background:rgba(245,158,11,0.08); border-left-color:#f59e0b; }
+        .alert-item.info { background:rgba(59,130,246,0.08); border-left-color:#3b82f6; }
+        .alert-district { font-size:0.78em; color:#64748b; margin-top:3px; }
+        .no-alerts { text-align:center; color:#22c55e; padding:20px; font-weight:500; }
+
+        /* ── LOADING ── */
+        .loading-state { text-align:center; padding:60px; color:#64748b; }
+        .spinner { display:inline-block; width:36px; height:36px; border:3px solid #1e293b; border-top:3px solid #22c55e; border-radius:50%; animation:spin 1s linear infinite; margin-bottom:12px; }
+        @keyframes spin { to{transform:rotate(360deg)} }
+
+        .footer { text-align:center; color:#64748b; padding:16px; border-top:1px solid #1e293b; font-size:0.8em; }
+        .footer a { color:#3b82f6; text-decoration:none; }
+        .footer a:hover { text-decoration:underline; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="header-top">
+            <div class="header-left">
+                <h1>⚡ EnergyGrid</h1>
+                <p>Panel de Monitoreo y Reportes - Consumo Eléctrico</p>
+            </div>
+            <div class="header-right">
+                <div class="connection-status">
+                    <span class="status-dot offline" id="statusDot"></span>
+                    <span id="statusLabel">Conectando...</span>
+                </div>
+                <div class="update-info">
+                    <span>🕐</span>
+                    <span id="lastUpdateTime">--</span>
+                    <span id="countdownDisplay" style="color:#64748b;">--</span>
+                </div>
+                <div class="ctrls">
+                    <button class="ctrl-btn active" onclick="setRefreshRate(5000)">5s</button>
+                    <button class="ctrl-btn" onclick="setRefreshRate(10000)">10s</button>
+                    <button class="ctrl-btn" onclick="setRefreshRate(15000)">15s</button>
+                    <button class="refresh-btn" onclick="refreshDashboard()">🔄</button>
+                </div>
+            </div>
+        </div>
+        <div class="summary-bar" id="summaryBar">
+            <div class="s-item"><span class="s-label">Consumo Total</span><span class="s-value" id="totalConsumo">--</span></div>
+            <div class="s-item"><span class="s-label">Capacidad Total</span><span class="s-value" id="totalCapacidad">--</span></div>
+            <div class="s-item"><span class="s-label">Uso Global</span><span class="s-value" id="globalUso">--</span></div>
+            <div class="s-item"><span class="s-label">Distritos</span><span class="s-value" id="totalDistritos">--</span></div>
+            <div class="s-item"><span class="s-label">Subestaciones</span><span class="s-value" id="totalSubestaciones">--</span></div>
+            <div class="s-item" id="criticalSummary" style="display:none;"><span class="s-label">Críticos</span><span class="s-value danger" id="criticalCount">0</span></div>
+            <div class="s-item" id="warningSummary" style="display:none;"><span class="s-label">En Alerta</span><span class="s-value warn" id="warningCount">0</span></div>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('districts')">📊 Distritos</button>
+        <button class="tab" onclick="switchTab('substations')">🏭 Subestaciones</button>
+        <button class="tab" onclick="switchTab('alerts')">🚨 Alertas</button>
+    </div>
+
+    <div id="viewDistritos">
+        <div id="dashboardGrid" class="dashboard-grid">
+            <div class="loading-state"><div class="spinner"></div><p>Cargando datos...</p></div>
+        </div>
+    </div>
+
+    <div id="viewSubstations" style="display:none;">
+        <div class="alerts-section">
+            <div class="alerts-title">🏭 Tabla General de Subestaciones</div>
+            <div id="substationsTableWrap" style="overflow-x:auto;">
+                <p class="no-alerts">Cargando...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="viewAlerts" style="display:none;">
+        <div class="alerts-section">
+            <div class="alerts-title">🚨 Historial de Alertas</div>
+            <div id="alertsContainer"><p class="no-alerts">✅ Sin alertas activas</p></div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p><a href="#" onclick="exportCSV()">📥 Exportar CSV</a> · <a href="http://localhost:3000" target="_blank">🖥 Dashboard Avanzado</a> · EnergyGrid v1.0 · Auto-refresh cada <span id="refreshRateLabel">5</span>s</p>
+    </div>
+</div>
+
+<script>
+let refreshInterval, refreshRate = 5000, countdown = 0;
+let allDistricts = [], allAlerts = [], historyCache = {};
+
+function fmt(n) { return (n===null||n===undefined||isNaN(n))?'--':Number(n).toLocaleString('es-ES',{maximumFractionDigits:1}); }
+
+function getClass(pct) { if(pct>=95)return'critico';if(pct>=90)return'advertencia';if(pct>=75)return'alto';return'normal'; }
+function getLabel(pct) { if(pct>=95)return'🔴 CRÍTICO';if(pct>=90)return'🟠 ADVERTENCIA';if(pct>=75)return'🟡 ALTO';return'🟢 NORMAL'; }
+function getFill(pct) { if(pct>=90)return'danger';if(pct>=75)return'warn';return'good'; }
+function subColor(pct) { if(pct>=95)return'danger';if(pct>=75)return'warn';return'good'; }
+
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('viewDistritos').style.display = name==='districts'?'block':'none';
+    document.getElementById('viewSubstations').style.display = name==='substations'?'block':'none';
+    document.getElementById('viewAlerts').style.display = name==='alerts'?'block':'none';
+    if(name==='substations') renderSubstationsTable();
+}
+
+/* ── SPARKLINE SVG ── */
+function sparkline(values, width=340, height=40) {
+    if(!values||values.length<2) return '';
+    const min=Math.min(...values), max=Math.max(...values), range=max-min||1;
+    const pts = values.map((v,i)=>`${(i/(values.length-1))*width},${height-((v-min)/range)*(height-4)-2}`).join(' ');
+    const color = values[values.length-1]>=90?'#ef4444':values[values.length-1]>=75?'#eab308':'#22c55e';
+    return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        <polyline fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts}"/>
+        <circle cx="${width}" cy="${height-((values[values.length-1]-min)/range)*(height-4)-2}" r="3" fill="${color}"/>
+    </svg>`;
+}
+
+/* ── HISTORY CHART ── */
+function historyChart(data, width=600, height=200) {
+    if(!data||data.length<2) return '<p style="color:#64748b;text-align:center;padding:40px;">Datos históricos insuficientes</p>';
+    const vals = data.map(d=>d.porcentaje_uso||0);
+    const min=Math.min(...vals), max=Math.max(...vals), range=max-min||1;
+    const pad=20, w=width-pad*2, h=height-pad*2;
+    const pts = vals.map((v,i)=>`${pad+(i/(vals.length-1))*w},${pad+h-((v-min)/range)*h}`).join(' ');
+    const last = vals[vals.length-1];
+    const color = last>=90?'#ef4444':last>=75?'#eab308':'#22c55e';
+
+    let yTicks = '';
+    for(let y=0;y<=100;y+=20) {
+        const yp = pad+h-((y-min)/range)*h;
+        yTicks += `<text x="${pad-4}" y="${yp+4}" fill="#64748b" font-size="10" text-anchor="end">${y}%</text>`;
+        yTicks += `<line x1="${pad}" y1="${yp}" x2="${pad+w}" y2="${yp}" stroke="#1e293b" stroke-width="1"/>`;
+    }
+    yTicks += `<line x1="${95}" y1="${pad}" x2="${95}" y2="${pad+h}" stroke="rgba(239,68,68,0.4)" stroke-width="1" stroke-dasharray="4 4"/>`;
+    yTicks += `<text x="${98}" y="${pad+10}" fill="#ef4444" font-size="9">95%</text>`;
+    yTicks += `<line x1="${75}" y1="${pad}" x2="${75}" y2="${pad+h}" stroke="rgba(234,179,8,0.4)" stroke-width="1" stroke-dasharray="4 4"/>`;
+    yTicks += `<text x="${78}" y="${pad+10}" fill="#eab308" font-size="9">75%</text>`;
+
+    return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:${height}px">
+        ${yTicks}
+        <polyline fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${pts}"/>
+        <circle cx="${pad+w}" cy="${pad+h-((last-min)/range)*h}" r="4" fill="${color}"/>
+    </svg>`;
+}
+
+/* ── FETCH HISTORY ── */
+async function fetchHistory(districtId) {
+    if(historyCache[districtId]) return historyCache[districtId];
+    try {
+        const r = await fetch('/api/districts/'+encodeURIComponent(districtId)+'/history?limit=30&_t='+Date.now());
+        const data = await r.json();
+        historyCache[districtId] = data.reverse();
+        return historyCache[districtId];
+    } catch(e) { return []; }
+}
+
+/* ── RENDER ── */
+function renderSummary() {
+    let tc=0, tcap=0, tsubs=0, crit=0, warn=0;
+    allDistricts.forEach(d=>{ tc+=d.consumo_kw||0; tcap+=d.capacidad_kw||0; tsubs+=(d.subestaciones||[]).length; const p=d.porcentaje_uso||0; if(p>=95)crit++; else if(p>=75)warn++; });
+    document.getElementById('totalConsumo').textContent = fmt(tc)+' kW';
+    document.getElementById('totalCapacidad').textContent = fmt(tcap)+' kW';
+    document.getElementById('totalDistritos').textContent = allDistricts.length;
+    document.getElementById('totalSubestaciones').textContent = tsubs;
+    const gp = tcap>0?(tc/tcap*100):0;
+    const u = document.getElementById('globalUso');
+    u.textContent = gp.toFixed(1)+'%';
+    u.className = 's-value'+(gp>=90?' danger':gp>=75?' warn':'');
+    const ce = document.getElementById('criticalSummary'), we = document.getElementById('warningSummary');
+    if(crit>0){ce.style.display='flex';document.getElementById('criticalCount').textContent=crit;}
+    else ce.style.display='none';
+    if(warn>0){we.style.display='flex';document.getElementById('warningCount').textContent=warn;}
+    else we.style.display='none';
+}
+
+function renderDistricts() {
+    const grid = document.getElementById('dashboardGrid');
+    if(!allDistricts||!allDistricts.length){grid.innerHTML='<div class="loading-state"><p style="color:#64748b;">No hay datos</p></div>';return;}
+    grid.innerHTML = '';
+    allDistricts.forEach(d=>{
+        const pct = d.porcentaje_uso||0;
+        const card = document.createElement('div');
+        card.className = 'card'+(pct>=95?' crit':pct>=90?' warn':'');
+        card.dataset.districtId = d.district_id;
+
+        const consumo = d.consumo_kw||0, capacidad = d.capacidad_kw||0;
+        const subs = d.subestaciones||[];
+        let subsHtml = '';
+        if(subs.length){
+            subsHtml += '<div class="subs"><div class="subs-title">Subestaciones ('+subs.length+'):</div>';
+            subs.forEach(s=>{const sp=s.porcentaje_uso||0;
+                subsHtml+='<div class="sub-item"><span class="sub-id">'+s.substation_id+'</span><span class="sub-val '+subColor(sp)+'">'+fmt(s.consumo_kw)+' / '+fmt(s.capacidad_kw)+' kW ('+sp.toFixed(1)+'%)</span></div>';
+            });
+            subsHtml += '</div>';
+        }
+
+        card.innerHTML = `
+            <div class="card-hdr">
+                <div class="card-title">${d.district_id}</div>
+                <div class="card-badge ${getClass(pct)}">${getLabel(pct)}</div>
+            </div>
+            <div class="card-metrics">
+                <div class="m-item"><span class="m-label">Consumo</span><div class="m-value">${fmt(consumo)} kW</div></div>
+                <div class="m-item"><span class="m-label">Capacidad</span><div class="m-value">${fmt(capacidad)} kW</div></div>
+                <div class="m-item"><span class="m-label">Uso</span><div class="m-value">${pct.toFixed(1)}%</div></div>
+            </div>
+            <div class="pbar"><div class="pfill ${getFill(pct)}" style="width:${Math.min(pct,100)}%"></div></div>
+            <div class="sparkline-wrap"><div class="sparkline-wrap-inner" data-district="${d.district_id}"><div class="sparkline-label">Cargando historial...</div></div></div>
+            ${subsHtml}
+        `;
+        card.onclick = ()=>toggleExpand(d.district_id, card);
+        grid.appendChild(card);
+
+        fetchHistory(d.district_id).then(h => {
+            const inner = card.querySelector('.sparkline-wrap-inner');
+            if(inner && h.length>1) {
+                const vals = h.map(x=>x.porcentaje_uso||0);
+                inner.innerHTML = sparkline(vals, 340, 36) + '<div class="sparkline-label">Últimos '+vals.length+' puntos · Tendencia</div>';
+            } else if(inner) {
+                inner.innerHTML = '<div class="sparkline-label">Sin datos históricos</div>';
+            }
+        });
+    });
+}
+
+async function toggleExpand(districtId, card) {
+    const expanded = card.classList.toggle('expanded');
+    if(!expanded) {
+        const existing = card.querySelector('.detail-row');
+        if(existing) existing.remove();
+        return;
+    }
+    const existing = card.querySelector('.detail-row');
+    if(existing) return;
+
+    const history = await fetchHistory(districtId);
+    const d = allDistricts.find(x=>x.district_id===districtId);
+    if(!d) return;
+
+    const subs = d.subestaciones||[];
+    let subsTable = '';
+    if(subs.length){
+        subsTable = '<table><thead><tr><th>ID</th><th>Consumo</th><th>Capacidad</th><th>Uso</th><th>Estado</th></tr></thead><tbody>';
+        subs.forEach(s=>{
+            const sp = s.porcentaje_uso||0;
+            subsTable += '<tr><td>'+s.substation_id+'</td><td>'+fmt(s.consumo_kw)+' kW</td><td>'+fmt(s.capacidad_kw)+' kW</td><td>'+sp.toFixed(1)+'%</td><td style="color:'+(sp>=90?'#ef4444':sp>=75?'#eab308':'#22c55e')+'">'+getLabel(sp)+'</td></tr>';
+        });
+        subsTable += '</tbody></table>';
+    } else {
+        subsTable = '<p style="color:#64748b;text-align:center;">Sin subestaciones</p>';
+    }
+
+    let statsRow = '';
+    if(history.length>1){
+        const vals = history.map(x=>x.porcentaje_uso||0);
+        const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const mn = Math.min(...vals), mx = Math.max(...vals);
+        const trend = vals[vals.length-1] - vals[0];
+        statsRow = `<div class="detail-stats">
+            <div class="detail-stat"><div class="ds-label">Promedio</div><div class="ds-value">${avg.toFixed(1)}%</div></div>
+            <div class="detail-stat"><div class="ds-label">Mínimo</div><div class="ds-value">${mn.toFixed(1)}%</div></div>
+            <div class="detail-stat"><div class="ds-label">Máximo</div><div class="ds-value">${mx.toFixed(1)}%</div></div>
+            <div class="detail-stat"><div class="ds-label">Tendencia</div><div class="ds-value" style="color:${trend>0?'#ef4444':trend<0?'#22c55e':'#94a3b8'}">${trend>0?'↑ +':trend<0?'↓ ':'→'}${Math.abs(trend).toFixed(1)}%</div></div>
+        </div>`;
+    }
+
+    const detail = document.createElement('div');
+    detail.className = 'detail-row';
+    detail.innerHTML = `
+        <div class="detail-chart-wrap">
+            <h4>📈 Historial de Uso (%) - ${districtId}</h4>
+            ${statsRow}
+            ${historyChart(history, 600, 200)}
+        </div>
+        <div class="detail-table">
+            <h4>🏭 Subestaciones - ${districtId}</h4>
+            ${subsTable}
+        </div>
+    `;
+    card.appendChild(detail);
+    card.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+function renderAlerts() {
+    const container = document.getElementById('alertsContainer');
+    if(!allAlerts||!allAlerts.length){container.innerHTML='<p class="no-alerts">✅ Sin alertas activas</p>';return;}
+    container.innerHTML = '';
+    allAlerts.forEach(a=>{
+        const sev = a.tipo_alerta&&(a.tipo_alerta.includes('SOBRECARGA')||a.tipo_alerta.includes('CRITICA'))?'crit':a.tipo_alerta&&a.tipo_alerta.includes('ADVERTENCIA')?'warning':'info';
+        const el = document.createElement('div');
+        el.className = 'alert-item '+sev;
+        el.innerHTML = '<strong>'+((sev==='crit'?'🔴':'')+(sev==='warning'?'🟠':'')+(sev==='info'?'🔵':''))+' '+(a.tipo_alerta||'Alerta')+'</strong><p style="margin-top:4px;">'+(a.descripcion||'')+'</p>'+(a.district_id?'<div class="alert-district">📍 '+a.district_id+'</div>':'');
+        container.appendChild(el);
+    });
+}
+
+function renderSubstationsTable() {
+    const wrap = document.getElementById('substationsTableWrap');
+    let rows = [];
+    allDistricts.forEach(d=>{
+        (d.subestaciones||[]).forEach(s=>{
+            rows.push({district:d.district_id, id:s.substation_id, consumo:s.consumo_kw, capacidad:s.capacidad_kw, pct:s.porcentaje_uso||0});
+        });
+    });
+    if(!rows.length){wrap.innerHTML='<p class="no-alerts">No hay subestaciones registradas</p>';return;}
+    rows.sort((a,b)=>b.pct-a.pct);
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.85em;"><thead><tr>';
+    html += '<th style="text-align:left;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Distrito</th>';
+    html += '<th style="text-align:left;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Subestación</th>';
+    html += '<th style="text-align:right;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Consumo</th>';
+    html += '<th style="text-align:right;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Capacidad</th>';
+    html += '<th style="text-align:right;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Uso</th>';
+    html += '<th style="text-align:center;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Estado</th></tr></thead><tbody>';
+    rows.forEach(r=>{
+        const color = r.pct>=90?'#ef4444':r.pct>=75?'#eab308':'#22c55e';
+        html += '<tr style="border-bottom:1px solid #1e293b;">';
+        html += '<td style="padding:8px;color:#cbd5e1;">'+r.district+'</td>';
+        html += '<td style="padding:8px;color:#e2e8f0;font-weight:600;">'+r.id+'</td>';
+        html += '<td style="padding:8px;text-align:right;color:#cbd5e1;">'+fmt(r.consumo)+' kW</td>';
+        html += '<td style="padding:8px;text-align:right;color:#cbd5e1;">'+fmt(r.capacidad)+' kW</td>';
+        html += '<td style="padding:8px;text-align:right;color:'+color+';font-weight:600;">'+r.pct.toFixed(1)+'%</td>';
+        html += '<td style="padding:8px;text-align:center;color:'+color+';">'+(r.pct>=90?'🔴':r.pct>=75?'🟡':'🟢')+'</td>';
+        html += '</tr>';
+    });
+    html += '</tbody></table><p style="color:#64748b;font-size:0.8em;margin-top:8px;">Total: '+rows.length+' subestaciones · Ordenado por uso descendente</p>';
+    wrap.innerHTML = html;
+}
+
+/* ── EXPORT CSV ── */
+function exportCSV() {
+    let csv = '\uFEFFDistrito,Subestación,Consumo_kW,Capacidad_kW,Uso_%\n';
+    allDistricts.forEach(d=>{
+        (d.subestaciones||[]).forEach(s=>{
+            csv += '"'+d.district_id+'","'+s.substation_id+'",'+(s.consumo_kw||0)+','+(s.capacidad_kw||0)+','+((s.porcentaje_uso||0).toFixed(1))+'\n';
+        });
+        if(!(d.subestaciones||[]).length) {
+            csv += '"'+d.district_id+'","--",'+(d.consumo_kw||0)+','+(d.capacidad_kw||0)+','+((d.porcentaje_uso||0).toFixed(1))+'\n';
+        }
+    });
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'EnergyGrid_Reporte_'+new Date().toISOString().slice(0,10)+'.csv';
+    link.click();
+}
+
+/* ── REFRESH ── */
+async function refreshDashboard() {
+    countdown = refreshRate/1000;
+    try {
+        const t = Date.now();
+        const [dRes, aRes] = await Promise.all([
+            fetch('/api/districts?_t='+t),
+            fetch('/api/alerts?resolved=false&_t='+t),
+        ]);
+        if(!dRes.ok) throw new Error('Error districts');
+        if(!aRes.ok) throw new Error('Error alerts');
+        allDistricts = await dRes.json();
+        allAlerts = await aRes.json();
+        renderSummary();
+        renderDistricts();
+        renderAlerts();
+        document.getElementById('statusDot').className = 'status-dot online';
+        document.getElementById('statusLabel').textContent = 'Tiempo real';
+        document.getElementById('lastUpdateTime').textContent = new Date().toLocaleTimeString('es-ES');
+    } catch(e) {
+        console.error(e);
+        document.getElementById('statusDot').className = 'status-dot offline';
+        document.getElementById('statusLabel').textContent = 'Error';
+    }
+}
+
+function setRefreshRate(rate) {
+    refreshRate = rate;
+    if(refreshInterval) clearInterval(refreshInterval);
+    document.querySelectorAll('.ctrl-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.ctrl-btn').forEach(b=>{if(parseInt(b.textContent)==rate/1000)b.classList.add('active');});
+    document.getElementById('refreshRateLabel').textContent = rate/1000;
+    if(rate>0){
+        refreshInterval = setInterval(()=>{countdown--;document.getElementById('countdownDisplay').textContent=countdown+'s';if(countdown<=0)refreshDashboard();},1000);
+        refreshDashboard();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', ()=>setRefreshRate(5000));
+document.addEventListener('visibilitychange', ()=>{if(!document.hidden&&refreshRate>0)refreshDashboard();});
+</script>
+</body>
+</html>

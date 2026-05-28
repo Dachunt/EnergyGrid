@@ -1,0 +1,1 @@
+{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidXNlcm5hbWUiOiJhZG1pbiIsImV4cCI6MTc3OTk5OTExMH0.lurVzYLPrTnNeC-PzQjqFu4Zw0g2Cl2mkk8_NxkG2Go","token_type":"bearer","user":{"id":1,"username":"admin","email":"admin@energygrid.com","nombre_completo":"Administrador del Sistema","rol":"admin"}}

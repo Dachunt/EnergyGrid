@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -18,18 +19,100 @@ async def get_districts(request: Request):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT DISTINCT ON (district_id)
-                district_id,
-                substation_id,
-                consumo_kw::float8 AS consumo_kw,
-                capacidad_kw::float8 AS capacidad_kw,
-                porcentaje_uso::float8 AS porcentaje_uso,
-                timestamp
-            FROM consumo_temporal
-            ORDER BY district_id, timestamp DESC
+            WITH latest_per_substation AS (
+                SELECT DISTINCT ON (ct.substation_id)
+                    ct.district_id,
+                    ct.substation_id,
+                    ct.consumo_kw,
+                    ct.capacidad_kw,
+                    ct.porcentaje_uso
+                FROM consumo_temporal ct
+                INNER JOIN subestaciones s ON s.id = ct.substation_id AND s.activa = TRUE
+                ORDER BY ct.substation_id, ct.timestamp DESC
+            )
+            SELECT
+                d.id AS district_id,
+                d.nombre,
+                d.latitud::float8 AS latitud,
+                d.longitud::float8 AS longitud,
+                d.activo,
+                COALESCE(sub.consumo_total, 0)::float8 AS consumo_kw,
+                COALESCE(sub.capacidad_total, 0)::float8 AS capacidad_kw,
+                CASE WHEN sub.capacidad_total > 0
+                    THEN (sub.consumo_total / sub.capacidad_total * 100)::float8
+                    ELSE 0
+                END AS porcentaje_uso,
+                COALESCE(sub.subestaciones, '[]'::jsonb) AS subestaciones
+            FROM distritos d
+            LEFT JOIN (
+                SELECT
+                    lps.district_id,
+                    SUM(lps.consumo_kw::float8) AS consumo_total,
+                    SUM(lps.capacidad_kw::float8) AS capacidad_total,
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'substation_id', lps.substation_id,
+                            'consumo_kw', lps.consumo_kw::float8,
+                            'capacidad_kw', lps.capacidad_kw::float8,
+                            'porcentaje_uso', lps.porcentaje_uso::float8,
+                            'latitud', s.latitud::float8,
+                            'longitud', s.longitud::float8
+                        )
+                        ORDER BY lps.substation_id
+                    ) AS subestaciones
+                FROM latest_per_substation lps
+                LEFT JOIN subestaciones s ON s.id = lps.substation_id
+                GROUP BY lps.district_id
+            ) sub ON sub.district_id = d.id
+            WHERE d.activo = TRUE
+            ORDER BY d.id
             """
         )
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        d = dict(row)
+        if isinstance(d.get("subestaciones"), str):
+            d["subestaciones"] = json.loads(d["subestaciones"])
+        result.append(d)
+    return result
+
+
+@router.get("/simulator/districts")
+async def get_simulator_districts(request: Request):
+    pool = request.app.state.db
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                d.id AS district_id,
+                d.nombre,
+                COALESCE(
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'id', s.id,
+                            'capacidad_kw', s.capacidad_kw
+                        )
+                    ) FILTER (WHERE s.id IS NOT NULL),
+                    '[]'::jsonb
+                ) AS substations
+            FROM distritos d
+            LEFT JOIN subestaciones s ON s.distrito = d.id AND s.activa = TRUE
+            WHERE d.activo = TRUE
+            GROUP BY d.id, d.nombre
+            ORDER BY d.id
+            """
+        )
+    result = []
+    for row in rows:
+        subs = row["substations"]
+        if isinstance(subs, str):
+            subs = json.loads(subs)
+        result.append({
+            "district_id": row["district_id"],
+            "nombre": row["nombre"],
+            "substations": subs,
+        })
+    return result
 
 
 @router.get("/districts/{district_id}/history")
