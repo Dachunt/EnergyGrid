@@ -14,60 +14,113 @@ SIMULATOR_URL = os.getenv("SIMULATOR_URL", "http://localhost:8001")
 
 
 @router.get("/districts")
-async def get_districts(request: Request):
+async def get_districts(request: Request, include_inactive: bool = False):
     pool = request.app.state.db
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            WITH latest_per_substation AS (
-                SELECT DISTINCT ON (ct.substation_id)
-                    ct.district_id,
-                    ct.substation_id,
-                    ct.consumo_kw,
-                    ct.capacidad_kw,
-                    ct.porcentaje_uso
-                FROM consumo_temporal ct
-                INNER JOIN subestaciones s ON s.id = ct.substation_id AND s.activa = TRUE
-                ORDER BY ct.substation_id, ct.timestamp DESC
-            )
-            SELECT
-                d.id AS district_id,
-                d.nombre,
-                d.latitud::float8 AS latitud,
-                d.longitud::float8 AS longitud,
-                d.activo,
-                COALESCE(sub.consumo_total, 0)::float8 AS consumo_kw,
-                COALESCE(sub.capacidad_total, 0)::float8 AS capacidad_kw,
-                CASE WHEN sub.capacidad_total > 0
-                    THEN (sub.consumo_total / sub.capacidad_total * 100)::float8
-                    ELSE 0
-                END AS porcentaje_uso,
-                COALESCE(sub.subestaciones, '[]'::jsonb) AS subestaciones
-            FROM distritos d
-            LEFT JOIN (
+        if include_inactive:
+            rows = await conn.fetch(
+                """
+                WITH latest_per_substation AS (
+                    SELECT DISTINCT ON (ct.substation_id)
+                        ct.district_id,
+                        ct.substation_id,
+                        ct.consumo_kw,
+                        ct.capacidad_kw,
+                        ct.porcentaje_uso
+                    FROM consumo_temporal ct
+                    INNER JOIN subestaciones s ON s.id = ct.substation_id
+                    ORDER BY ct.substation_id, ct.timestamp DESC
+                )
                 SELECT
-                    lps.district_id,
-                    SUM(lps.consumo_kw::float8) AS consumo_total,
-                    SUM(lps.capacidad_kw::float8) AS capacidad_total,
-                    jsonb_agg(
-                        jsonb_build_object(
-                            'substation_id', lps.substation_id,
-                            'consumo_kw', lps.consumo_kw::float8,
-                            'capacidad_kw', lps.capacidad_kw::float8,
-                            'porcentaje_uso', lps.porcentaje_uso::float8,
-                            'latitud', s.latitud::float8,
-                            'longitud', s.longitud::float8
-                        )
-                        ORDER BY lps.substation_id
-                    ) AS subestaciones
-                FROM latest_per_substation lps
-                LEFT JOIN subestaciones s ON s.id = lps.substation_id
-                GROUP BY lps.district_id
-            ) sub ON sub.district_id = d.id
-            WHERE d.activo = TRUE
-            ORDER BY d.id
-            """
-        )
+                    d.id AS district_id,
+                    d.nombre,
+                    d.latitud::float8 AS latitud,
+                    d.longitud::float8 AS longitud,
+                    d.activo,
+                    COALESCE(sub.consumo_total, 0)::float8 AS consumo_kw,
+                    COALESCE(sub.capacidad_total, 0)::float8 AS capacidad_kw,
+                    CASE WHEN sub.capacidad_total > 0
+                        THEN (sub.consumo_total / sub.capacidad_total * 100)::float8
+                        ELSE 0
+                    END AS porcentaje_uso,
+                    COALESCE(sub.subestaciones, '[]'::jsonb) AS subestaciones
+                FROM distritos d
+                LEFT JOIN (
+                    SELECT
+                        lps.district_id,
+                        SUM(lps.consumo_kw::float8) AS consumo_total,
+                        SUM(lps.capacidad_kw::float8) AS capacidad_total,
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'substation_id', lps.substation_id,
+                                'consumo_kw', lps.consumo_kw::float8,
+                                'capacidad_kw', lps.capacidad_kw::float8,
+                                'porcentaje_uso', lps.porcentaje_uso::float8,
+                                'latitud', s.latitud::float8,
+                                'longitud', s.longitud::float8,
+                                'activa', s.activa
+                            )
+                            ORDER BY lps.substation_id
+                        ) AS subestaciones
+                    FROM latest_per_substation lps
+                    LEFT JOIN subestaciones s ON s.id = lps.substation_id
+                    GROUP BY lps.district_id
+                ) sub ON sub.district_id = d.id
+                ORDER BY d.id
+                """
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                WITH latest_per_substation AS (
+                    SELECT DISTINCT ON (ct.substation_id)
+                        ct.district_id,
+                        ct.substation_id,
+                        ct.consumo_kw,
+                        ct.capacidad_kw,
+                        ct.porcentaje_uso
+                    FROM consumo_temporal ct
+                    INNER JOIN subestaciones s ON s.id = ct.substation_id AND s.activa = TRUE
+                    ORDER BY ct.substation_id, ct.timestamp DESC
+                )
+                SELECT
+                    d.id AS district_id,
+                    d.nombre,
+                    d.latitud::float8 AS latitud,
+                    d.longitud::float8 AS longitud,
+                    d.activo,
+                    COALESCE(sub.consumo_total, 0)::float8 AS consumo_kw,
+                    COALESCE(sub.capacidad_total, 0)::float8 AS capacidad_kw,
+                    CASE WHEN sub.capacidad_total > 0
+                        THEN (sub.consumo_total / sub.capacidad_total * 100)::float8
+                        ELSE 0
+                    END AS porcentaje_uso,
+                    COALESCE(sub.subestaciones, '[]'::jsonb) AS subestaciones
+                FROM distritos d
+                LEFT JOIN (
+                    SELECT
+                        lps.district_id,
+                        SUM(lps.consumo_kw::float8) AS consumo_total,
+                        SUM(lps.capacidad_kw::float8) AS capacidad_total,
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'substation_id', lps.substation_id,
+                                'consumo_kw', lps.consumo_kw::float8,
+                                'capacidad_kw', lps.capacidad_kw::float8,
+                                'porcentaje_uso', lps.porcentaje_uso::float8,
+                                'latitud', s.latitud::float8,
+                                'longitud', s.longitud::float8
+                            )
+                            ORDER BY lps.substation_id
+                        ) AS subestaciones
+                    FROM latest_per_substation lps
+                    LEFT JOIN subestaciones s ON s.id = lps.substation_id
+                    GROUP BY lps.district_id
+                ) sub ON sub.district_id = d.id
+                WHERE d.activo = TRUE
+                ORDER BY d.id
+                """
+            )
     result = []
     for row in rows:
         d = dict(row)
@@ -140,24 +193,41 @@ async def get_district_history(district_id: str, request: Request, limit: int = 
 
 
 @router.get("/alerts")
-async def get_alerts(request: Request, resolved: bool = False):
+async def get_alerts(request: Request, resolved: bool = False, history: bool = False, limit: int = 100):
     pool = request.app.state.db
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT
-                id,
-                district_id,
-                tipo_alerta,
-                descripcion,
-                timestamp,
-                resuelta
-            FROM alertas
-            WHERE resuelta = $1
-            ORDER BY timestamp DESC
-            """,
-            resolved,
-        )
+        if history:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    id,
+                    district_id,
+                    tipo_alerta,
+                    descripcion,
+                    timestamp,
+                    resuelta
+                FROM alertas
+                ORDER BY timestamp DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    id,
+                    district_id,
+                    tipo_alerta,
+                    descripcion,
+                    timestamp,
+                    resuelta
+                FROM alertas
+                WHERE resuelta = $1
+                ORDER BY timestamp DESC
+                """,
+                resolved,
+            )
     return [dict(row) for row in rows]
 
 

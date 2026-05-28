@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Request, HTTPException, Depends
 
 from app.middleware import require_auth
+from app.websocket_manager import manager
 
 logger = logging.getLogger("energygrid")
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -142,6 +143,12 @@ async def update_district(district_id: str, data: DistrictUpdate, request: Reque
             *values
         )
     logger.info("Distrito actualizado", extra={"district_id": district_id, "user": user["username"]})
+    if "activo" in updates:
+        await manager.broadcast({
+            "event": "DISTRITO_ACTUALIZADO",
+            "district_id": district_id,
+            "activo": updates["activo"],
+        })
     return dict(row)
 
 
@@ -161,6 +168,11 @@ async def delete_district(district_id: str, request: Request, user: dict = Depen
             district_id
         )
     logger.info("Distrito desactivado", extra={"district_id": district_id, "user": user["username"]})
+    await manager.broadcast({
+        "event": "DISTRITO_ACTUALIZADO",
+        "district_id": district_id,
+        "activo": False,
+    })
     return {"message": "Distrito desactivado correctamente"}
 
 
@@ -265,6 +277,13 @@ async def update_substation(substation_id: str, data: SubstationUpdate, request:
             *values
         )
     logger.info("Subestación actualizada", extra={"substation_id": substation_id, "user": user["username"]})
+    if "activa" in updates:
+        await manager.broadcast({
+            "event": "SUBESTACION_ACTUALIZADA",
+            "substation_id": substation_id,
+            "district_id": existing["distrito"],
+            "activa": updates["activa"],
+        })
     return dict(row)
 
 
