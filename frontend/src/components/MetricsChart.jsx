@@ -11,7 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 
-function MetricsChart({ districts, selectedDistrict }) {
+function MetricsChart({ districts, selectedDistrict, apiBase }) {
   const [historyData, setHistoryData] = useState([])
 
   // Cargar historial del distrito seleccionado
@@ -20,7 +20,8 @@ function MetricsChart({ districts, selectedDistrict }) {
 
     const fetchHistory = async () => {
       try {
-        const response = await fetch(`/api/districts/${selectedDistrict}/history?limit=20`)
+        const base = apiBase || import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+        const response = await fetch(`${base}/api/districts/${selectedDistrict}/history?limit=20`)
         const data = await response.json()
 
         // Transformar datos para Recharts

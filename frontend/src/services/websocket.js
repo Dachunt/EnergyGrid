@@ -1,28 +1,38 @@
-export function connectWebSocket(onMessage, baseUrl) {
+export function connectWebSocket(onMessage, baseUrl, onStatusChange) {
   const wsUrl = `${baseUrl.replace(/^http/, 'ws')}/ws`
-  const ws = new WebSocket(wsUrl)
+  let ws
 
-  ws.onopen = () => {
-    console.log('WebSocket conectado')
-  }
+  function connect() {
+    ws = new WebSocket(wsUrl)
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      onMessage(data)
-    } catch (err) {
-      console.error('Error parsing WS message:', err)
+    ws.onopen = () => {
+      console.log('WebSocket conectado')
+      if (onStatusChange) onStatusChange(true)
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        onMessage(data)
+      } catch (err) {
+        console.error('Error parsing WS message:', err)
+      }
+    }
+
+    ws.onclose = () => {
+      console.log('WebSocket desconectado, reconectando en 3s...')
+      if (onStatusChange) onStatusChange(false)
+      setTimeout(connect, 3000)
+    }
+
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err)
     }
   }
 
-  ws.onclose = () => {
-    console.log('WebSocket desconectado, reconectando en 3s...')
-    setTimeout(() => connectWebSocket(onMessage, baseUrl), 3000)
-  }
+  connect()
 
-  ws.onerror = (err) => {
-    console.error('WebSocket error:', err)
+  return {
+    close: () => { if (ws) ws.close() },
   }
-
-  return ws
 }

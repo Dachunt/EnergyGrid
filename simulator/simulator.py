@@ -4,7 +4,7 @@ import random
 import math
 import logging
 import threading
-import asyncio
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -16,13 +16,16 @@ import uvicorn
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 INTERVAL_MS = int(os.environ.get("INTERVAL_MS", 1000))
 
-SUBESTACIONES = [
+FALLBACK_SUBESTACIONES = [
     {"id": "SSS001", "distrito": "San Salvador",      "capacidad": 5000},
     {"id": "SSS002", "distrito": "San Salvador",      "capacidad": 4500},
-    {"id": "SAN001", "distrito": "Antiguo Cuscatlán", "capacidad": 3000},
+    {"id": "SAN001", "distrito": "Antiguo Cuscatlan", "capacidad": 3000},
     {"id": "STC001", "distrito": "Santa Tecla",       "capacidad": 3500},
     {"id": "SAL001", "distrito": "Soyapango",         "capacidad": 4000},
 ]
+
+subestaciones = list(FALLBACK_SUBESTACIONES)
+subestaciones_lock = threading.Lock()
 
 # Estado global del simulador
 simulator_state = {
@@ -30,9 +33,38 @@ simulator_state = {
     "peak_hour_active": False,
     "overload_districts": set(),
     "stopped_substations": set(),
-    "burst_multiplier": 1,  # 1 = normal, 2+ = burst mode
-    "redistribution_factors": {},  # {district: factor}  ej. {"San Salvador": 0.55}
+    "burst_multiplier": 1,
+    "redistribution_factors": {},
 }
+
+
+def fetch_subestaciones():
+    global subestaciones
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/simulator/districts", timeout=5)
+        if resp.status_code != 200:
+            return
+        data = resp.json()
+        nuevas = []
+        for d in data:
+            for s in d.get("substations", []):
+                nuevas.append({
+                    "id": s["id"],
+                    "distrito": d["district_id"],
+                    "capacidad": s["capacidad_kw"],
+                })
+        if nuevas:
+            with subestaciones_lock:
+                subestaciones = nuevas
+            logger.info(f"Subestaciones actualizadas desde backend: {len(nuevas)} activas")
+    except Exception as e:
+        logger.warning(f"No se pudo obtener subestaciones del backend: {e}")
+
+
+def refresh_subestaciones_loop():
+    while simulator_state["running"]:
+        fetch_subestaciones()
+        time.sleep(15)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -91,28 +123,25 @@ def enviar_metrica(sub, consumo):
 
 
 def loop_simulador():
-    """Loop principal del simulador que envía datos"""
     logger.info(f"Simulador iniciado. Enviando a {BACKEND_URL} cada {INTERVAL_MS}ms")
     
     while simulator_state["running"]:
         hora = get_hora_virtual()
-        
-        # Si está en peak hour, aumentar frecuencia (burst)
         interval = INTERVAL_MS / simulator_state["burst_multiplier"]
         
-        for sub in SUBESTACIONES:
-            # Saltar subestaciones detenidas
+        with subestaciones_lock:
+            current = list(subestaciones)
+        
+        for sub in current:
             if sub["id"] in simulator_state["stopped_substations"]:
                 continue
             
-            # Calcular consumo
             if sub["distrito"] in simulator_state["overload_districts"]:
                 consumo = inyectar_sobrecarga(sub)
                 logger.info(f"[OVERLOAD] {sub['id']} ({sub['distrito']}): {consumo} kW")
             else:
                 consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
             
-            # Enviar métrica
             enviar_metrica(sub, consumo)
         
         time.sleep(interval / 1000)
@@ -144,7 +173,8 @@ async def trigger_overload(district: str = Query(..., description="Nombre del di
     
     Ejemplo: POST /simulator/trigger-overload?district=San Salvador
     """
-    distritos_validos = {sub["distrito"] for sub in SUBESTACIONES}
+    with subestaciones_lock:
+        distritos_validos = {sub["distrito"] for sub in subestaciones}
     
     if district not in distritos_validos:
         return JSONResponse(
@@ -217,7 +247,8 @@ async def stop_substation(substation_id: str = Query(..., description="ID de sub
     
     Ejemplo: POST /simulator/stop-substation?substation_id=SSS001
     """
-    subestaciones_validas = {sub["id"] for sub in SUBESTACIONES}
+    with subestaciones_lock:
+        subestaciones_validas = {sub["id"] for sub in subestaciones}
     
     if substation_id not in subestaciones_validas:
         return JSONResponse(
@@ -346,7 +377,8 @@ async def set_redistribution(
     Fuerza un factor de consumo bajo en un distrito (redistribución activa).
     El simulador enviará consumos al factor indicado ±3% de variación natural.
     """
-    distritos_validos = {sub["distrito"] for sub in SUBESTACIONES}
+    with subestaciones_lock:
+        distritos_validos = {sub["distrito"] for sub in subestaciones}
     if district not in distritos_validos:
         return JSONResponse(
             status_code=400,
@@ -393,10 +425,19 @@ async def reset_simulator():
 # ============================================================================
 
 if __name__ == "__main__":
-    # Iniciar loop del simulador en un thread separado
+    for attempt in range(10):
+        fetch_subestaciones()
+        with subestaciones_lock:
+            count = len(subestaciones)
+        if count > 3:
+            break
+        time.sleep(3)
+    
+    refresh_thread = threading.Thread(target=refresh_subestaciones_loop, daemon=True)
+    refresh_thread.start()
+    
     simulator_thread = threading.Thread(target=loop_simulador, daemon=True)
     simulator_thread.start()
     
-    # Iniciar servidor FastAPI
     logger.info("Iniciando servidor FastAPI en puerto 8001")
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

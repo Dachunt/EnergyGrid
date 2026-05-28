@@ -9,3 +9,6 @@ websockets
 python-json-logger
 httpx
 psutil
+python-jose[cryptography]
+bcrypt
+python-multipart

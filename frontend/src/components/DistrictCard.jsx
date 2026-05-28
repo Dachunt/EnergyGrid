@@ -60,9 +60,22 @@ function DistrictCard({ district, isSelected, isRedistributed, onSelect, onRedis
           }}></div>
         </div>
       </div>
-      {district.substation_id && (
+      {district.subestaciones && district.subestaciones.length > 0 && (
         <div className="card-footer">
-          <small>Subestación: {district.substation_id}</small>
+          <small style={{ display: 'block', marginBottom: '4px', color: '#94a3b8' }}>Subestaciones:</small>
+          {district.subestaciones.map(s => (
+            <div key={s.substation_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '2px 0', borderTop: '1px solid #1e293b' }}>
+              <span>{s.substation_id}</span>
+              <span style={{ color: s.porcentaje_uso >= 95 ? '#ef4444' : s.porcentaje_uso >= 75 ? '#eab308' : '#22c55e' }}>
+                {s.consumo_kw?.toFixed(1) || '--'} / {s.capacidad_kw?.toFixed(1) || '--'} kW ({ (s.porcentaje_uso || 0).toFixed(1) }%)
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!district.subestaciones?.length && district.district_id && (
+        <div className="card-footer">
+          <small style={{ color: '#64748b' }}>Sin subestaciones</small>
         </div>
       )}
       <div className="card-actions">
