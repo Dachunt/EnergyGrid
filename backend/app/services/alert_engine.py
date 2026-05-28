@@ -20,6 +20,15 @@ async def analizar_metrica(data: dict, pool):
         "timestamp": data.get("timestamp"),
     })
 
+    # Auto-resolve alertas activas si la métrica bajó de 95%
+    if porcentaje < 95:
+        resolvio = await resolver_alertas_distrito(pool, data["district_id"])
+        if resolvio:
+            await manager.broadcast({
+                "event": "ALERTA_RESUELTA",
+                "district_id": data["district_id"],
+            })
+
     if porcentaje >= 95:
         alert_id = await crear_alerta(
             pool,
@@ -30,6 +39,8 @@ async def analizar_metrica(data: dict, pool):
                 "Riesgo de apagon. Redistribuir carga."
             ),
         )
+        if alert_id is None:
+            return
         await manager.broadcast({
             "event": "SOBRECARGA",
             "alert_id": alert_id,
@@ -70,8 +81,18 @@ async def analizar_metrica(data: dict, pool):
         )
 
 
-async def crear_alerta(pool, district_id: str, tipo: str, descripcion: str) -> int:
+async def crear_alerta(pool, district_id: str, tipo: str, descripcion: str):
     async with pool.acquire() as conn:
+        existe = await conn.fetchval(
+            """
+            SELECT id FROM alertas
+            WHERE district_id = $1 AND resuelta = FALSE
+            LIMIT 1
+            """,
+            district_id,
+        )
+        if existe:
+            return None
         row = await conn.fetchrow(
             """
             INSERT INTO alertas (district_id, tipo_alerta, descripcion)
@@ -83,6 +104,19 @@ async def crear_alerta(pool, district_id: str, tipo: str, descripcion: str) -> i
             descripcion,
         )
     return int(row["id"])
+
+
+async def resolver_alertas_distrito(pool, district_id: str) -> bool:
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE alertas
+            SET resuelta = TRUE
+            WHERE district_id = $1 AND resuelta = FALSE
+            """,
+            district_id,
+        )
+    return result != "UPDATE 0"
 
 
 async def sugerir_redistribucion(pool, district_id: str):

@@ -148,6 +148,10 @@ function AppContent() {
         setRedistributed((prev) => { const n = new Set(prev); n.delete(data.district_id); return n })
       }
 
+      if (data.event === 'DISTRITO_ACTUALIZADO' || data.event === 'SUBESTACION_ACTUALIZADA') {
+        refreshData()
+      }
+
       if (['SOBRECARGA', 'ADVERTENCIA', 'ACTUALIZACION'].includes(data.event)) {
         setDistricts((prev) => {
           const idx = prev.findIndex((d) => d.district_id === data.district_id)

@@ -195,7 +195,7 @@
     </div>
 
     <div class="footer">
-        <p><a href="#" onclick="exportCSV()">📥 Exportar CSV</a> · <a href="http://localhost:3000" target="_blank">🖥 Dashboard Avanzado</a> · EnergyGrid v1.0 · Auto-refresh cada <span id="refreshRateLabel">5</span>s</p>
+        <p> EnergyGrid v1.0 · Auto-refresh cada <span id="refreshRateLabel">5</span>s</p>
     </div>
 </div>
 
@@ -273,7 +273,7 @@ async function fetchHistory(districtId) {
 /* ── RENDER ── */
 function renderSummary() {
     let tc=0, tcap=0, tsubs=0, crit=0, warn=0;
-    allDistricts.forEach(d=>{ tc+=d.consumo_kw||0; tcap+=d.capacidad_kw||0; tsubs+=(d.subestaciones||[]).length; const p=d.porcentaje_uso||0; if(p>=95)crit++; else if(p>=75)warn++; });
+    allDistricts.forEach(d=>{ tc+=d.consumo_kw||0; tcap+=d.capacidad_kw||0; if(d.activo!==false) tsubs+=(d.subestaciones||[]).length; const p=d.porcentaje_uso||0; if(p>=95)crit++; else if(p>=75)warn++; });
     document.getElementById('totalConsumo').textContent = fmt(tc)+' kW';
     document.getElementById('totalCapacidad').textContent = fmt(tcap)+' kW';
     document.getElementById('totalDistritos').textContent = allDistricts.length;
@@ -294,9 +294,11 @@ function renderDistricts() {
     if(!allDistricts||!allDistricts.length){grid.innerHTML='<div class="loading-state"><p style="color:#64748b;">No hay datos</p></div>';return;}
     grid.innerHTML = '';
     allDistricts.forEach(d=>{
+        const activo = d.activo !== false;
         const pct = d.porcentaje_uso||0;
         const card = document.createElement('div');
-        card.className = 'card'+(pct>=95?' crit':pct>=90?' warn':'');
+        card.className = 'card'+(activo?(pct>=95?' crit':pct>=90?' warn':''):'');
+        if(!activo) card.style.opacity = '0.5';
         card.dataset.districtId = d.district_id;
 
         const consumo = d.consumo_kw||0, capacidad = d.capacidad_kw||0;
@@ -304,16 +306,20 @@ function renderDistricts() {
         let subsHtml = '';
         if(subs.length){
             subsHtml += '<div class="subs"><div class="subs-title">Subestaciones ('+subs.length+'):</div>';
-            subs.forEach(s=>{const sp=s.porcentaje_uso||0;
-                subsHtml+='<div class="sub-item"><span class="sub-id">'+s.substation_id+'</span><span class="sub-val '+subColor(sp)+'">'+fmt(s.consumo_kw)+' / '+fmt(s.capacidad_kw)+' kW ('+sp.toFixed(1)+'%)</span></div>';
+            subs.forEach(s=>{
+                const sp=s.porcentaje_uso||0;
+                const sa = s.activa !== false;
+                subsHtml+='<div class="sub-item" style="'+(sa?'':'opacity:0.5;')+'"><span class="sub-id">'+s.substation_id+'</span><span class="sub-val '+subColor(sp)+'">'+fmt(s.consumo_kw)+' / '+fmt(s.capacidad_kw)+' kW ('+sp.toFixed(1)+'%)'+(sa?'':' ⛔')+'</span></div>';
             });
             subsHtml += '</div>';
         }
 
+        const badge = activo ? ('<div class="card-badge '+getClass(pct)+'">'+getLabel(pct)+'</div>') : '<div class="card-badge" style="background:rgba(100,116,139,0.12);color:#94a3b8;border:1px solid rgba(100,116,139,0.2);">⛔ INACTIVO</div>';
+
         card.innerHTML = `
             <div class="card-hdr">
                 <div class="card-title">${d.district_id}</div>
-                <div class="card-badge ${getClass(pct)}">${getLabel(pct)}</div>
+                ${badge}
             </div>
             <div class="card-metrics">
                 <div class="m-item"><span class="m-label">Consumo</span><div class="m-value">${fmt(consumo)} kW</div></div>
@@ -324,7 +330,7 @@ function renderDistricts() {
             <div class="sparkline-wrap"><div class="sparkline-wrap-inner" data-district="${d.district_id}"><div class="sparkline-label">Cargando historial...</div></div></div>
             ${subsHtml}
         `;
-        card.onclick = ()=>toggleExpand(d.district_id, card);
+        if(activo) card.onclick = ()=>toggleExpand(d.district_id, card);
         grid.appendChild(card);
 
         fetchHistory(d.district_id).then(h => {
@@ -399,15 +405,29 @@ async function toggleExpand(districtId, card) {
 
 function renderAlerts() {
     const container = document.getElementById('alertsContainer');
-    if(!allAlerts||!allAlerts.length){container.innerHTML='<p class="no-alerts">✅ Sin alertas activas</p>';return;}
-    container.innerHTML = '';
-    allAlerts.forEach(a=>{
-        const sev = a.tipo_alerta&&(a.tipo_alerta.includes('SOBRECARGA')||a.tipo_alerta.includes('CRITICA'))?'crit':a.tipo_alerta&&a.tipo_alerta.includes('ADVERTENCIA')?'warning':'info';
-        const el = document.createElement('div');
-        el.className = 'alert-item '+sev;
-        el.innerHTML = '<strong>'+((sev==='crit'?'🔴':'')+(sev==='warning'?'🟠':'')+(sev==='info'?'🔵':''))+' '+(a.tipo_alerta||'Alerta')+'</strong><p style="margin-top:4px;">'+(a.descripcion||'')+'</p>'+(a.district_id?'<div class="alert-district">📍 '+a.district_id+'</div>':'');
-        container.appendChild(el);
+    if(!allAlerts||!allAlerts.length){container.innerHTML='<p class="no-alerts">📋 No hay alertas en el historial</p>';return;}
+    const sorted = [...allAlerts].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.85em;"><thead><tr>';
+    html += '<th style="text-align:left;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">🕐 Hora</th>';
+    html += '<th style="text-align:left;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">📍 Distrito</th>';
+    html += '<th style="text-align:left;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">⚠️ Tipo</th>';
+    html += '<th style="text-align:left;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">📝 Descripción</th>';
+    html += '<th style="text-align:center;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Estado</th></tr></thead><tbody>';
+    sorted.forEach(a=>{
+        const ts = a.timestamp ? new Date(a.timestamp).toLocaleString('es-ES') : '--';
+        const tipo = a.tipo_alerta||'Alerta';
+        const sev = tipo.includes('SOBRECARGA')||tipo.includes('CRITICA')?'crit':tipo.includes('ADVERTENCIA')?'warning':'info';
+        const color = sev==='crit'?'#ef4444':sev==='warning'?'#f59e0b':'#3b82f6';
+        html += '<tr style="border-bottom:1px solid #1e293b;">';
+        html += '<td style="padding:8px;color:#94a3b8;white-space:nowrap;">'+ts+'</td>';
+        html += '<td style="padding:8px;color:#e2e8f0;font-weight:600;">'+(a.district_id||'--')+'</td>';
+        html += '<td style="padding:8px;color:'+color+';font-weight:600;">'+tipo+'</td>';
+        html += '<td style="padding:8px;color:#cbd5e1;">'+(a.descripcion||'')+'</td>';
+        html += '<td style="padding:8px;text-align:center;">'+(a.resuelta?'✅ Resuelta':'⏳ Activa')+'</td>';
+        html += '</tr>';
     });
+    html += '</tbody></table><p style="color:#64748b;font-size:0.8em;margin-top:8px;">Total: '+sorted.length+' alertas en el historial</p>';
+    container.innerHTML = html;
 }
 
 function renderSubstationsTable() {
@@ -415,7 +435,7 @@ function renderSubstationsTable() {
     let rows = [];
     allDistricts.forEach(d=>{
         (d.subestaciones||[]).forEach(s=>{
-            rows.push({district:d.district_id, id:s.substation_id, consumo:s.consumo_kw, capacidad:s.capacidad_kw, pct:s.porcentaje_uso||0});
+            rows.push({district:d.district_id, id:s.substation_id, consumo:s.consumo_kw, capacidad:s.capacidad_kw, pct:s.porcentaje_uso||0, activa:s.activa!==false, district_activo:d.activo!==false});
         });
     });
     if(!rows.length){wrap.innerHTML='<p class="no-alerts">No hay subestaciones registradas</p>';return;}
@@ -429,13 +449,18 @@ function renderSubstationsTable() {
     html += '<th style="text-align:center;padding:8px;color:#64748b;text-transform:uppercase;font-size:0.72em;border-bottom:1px solid #334155;">Estado</th></tr></thead><tbody>';
     rows.forEach(r=>{
         const color = r.pct>=90?'#ef4444':r.pct>=75?'#eab308':'#22c55e';
-        html += '<tr style="border-bottom:1px solid #1e293b;">';
+        const dim = (!r.district_activo||!r.activa)?'opacity:0.5;':'';
+        let estadoHtml;
+        if(!r.district_activo) estadoHtml = '<span style="color:#94a3b8;">⛔ Inactivo</span>';
+        else if(!r.activa) estadoHtml = '<span style="color:#94a3b8;">⛔ Inactiva</span>';
+        else estadoHtml = r.pct>=90?'🔴':r.pct>=75?'🟡':'🟢';
+        html += '<tr style="border-bottom:1px solid #1e293b;'+dim+'">';
         html += '<td style="padding:8px;color:#cbd5e1;">'+r.district+'</td>';
         html += '<td style="padding:8px;color:#e2e8f0;font-weight:600;">'+r.id+'</td>';
         html += '<td style="padding:8px;text-align:right;color:#cbd5e1;">'+fmt(r.consumo)+' kW</td>';
         html += '<td style="padding:8px;text-align:right;color:#cbd5e1;">'+fmt(r.capacidad)+' kW</td>';
         html += '<td style="padding:8px;text-align:right;color:'+color+';font-weight:600;">'+r.pct.toFixed(1)+'%</td>';
-        html += '<td style="padding:8px;text-align:center;color:'+color+';">'+(r.pct>=90?'🔴':r.pct>=75?'🟡':'🟢')+'</td>';
+        html += '<td style="padding:8px;text-align:center;">'+estadoHtml+'</td>';
         html += '</tr>';
     });
     html += '</tbody></table><p style="color:#64748b;font-size:0.8em;margin-top:8px;">Total: '+rows.length+' subestaciones · Ordenado por uso descendente</p>';
@@ -466,8 +491,8 @@ async function refreshDashboard() {
     try {
         const t = Date.now();
         const [dRes, aRes] = await Promise.all([
-            fetch('/api/districts?_t='+t),
-            fetch('/api/alerts?resolved=false&_t='+t),
+            fetch('/api/districts?include_inactive=true&_t='+t),
+            fetch('/api/alerts?history=true&limit=200&_t='+t),
         ]);
         if(!dRes.ok) throw new Error('Error districts');
         if(!aRes.ok) throw new Error('Error alerts');
@@ -498,7 +523,19 @@ function setRefreshRate(rate) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', ()=>setRefreshRate(5000));
+function connectAdminWS() {
+    const proto = location.protocol==='https:'?'wss:':'ws:';
+    const ws = new WebSocket(proto+'//'+location.host+'/ws');
+    ws.onmessage = (e) => {
+        try {
+            const d = JSON.parse(e.data);
+            if (d.event==='DISTRITO_ACTUALIZADO'||d.event==='SUBESTACION_ACTUALIZADA') refreshDashboard();
+        } catch(_) {}
+    };
+    ws.onclose = () => setTimeout(connectAdminWS, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{setRefreshRate(5000);connectAdminWS();});
 document.addEventListener('visibilitychange', ()=>{if(!document.hidden&&refreshRate>0)refreshDashboard();});
 </script>
 </body>
