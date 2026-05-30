@@ -5,6 +5,7 @@ from app.services.load_balancer import redistribuir_carga
 from app.services.structured_logger import log_event
 from app.services.spike_detector import detectar_pico
 from app.services.notification_service import notificar_pico
+from app.services.alert_file_logger import registrar_alerta_en_archivo
 
 
 async def analizar_metrica(data: dict, pool):
@@ -22,7 +23,6 @@ async def analizar_metrica(data: dict, pool):
         "timestamp": data.get("timestamp"),
     })
 
-    # Auto-resolve alertas activas si la métrica bajó de 95%
     if porcentaje < 95:
         resolvio = await resolver_alertas_distrito(pool, data["district_id"])
         if resolvio:
@@ -64,7 +64,15 @@ async def analizar_metrica(data: dict, pool):
             porcentaje=round(porcentaje, 2),
             action="redistribucion_sugerida",
         )
+        sugerencias = await redistribuir_carga(pool, data["district_id"])
+        registrar_alerta_en_archivo(
+            data,
+            nivel="CRITICO",
+            tipo="SOBRECARGA_CRITICA",
+            redistribucion=sugerencias,
+        )
         await sugerir_redistribucion(pool, data["district_id"])
+
     elif porcentaje >= 90:
         await manager.broadcast({
             "event": "ADVERTENCIA",
@@ -81,8 +89,13 @@ async def analizar_metrica(data: dict, pool):
             substation_id=data["substation_id"],
             porcentaje=round(porcentaje, 2),
         )
+        registrar_alerta_en_archivo(
+            data,
+            nivel="ALTO",
+            tipo="ADVERTENCIA",
+            redistribucion=[],
+        )
 
-    # ── Detección de picos de energía ─────────────────────────────────────
     spike = await detectar_pico(data, pool)
     if spike:
         await notificar_pico(spike, pool)
