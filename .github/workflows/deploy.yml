@@ -100,6 +100,18 @@ jobs:
     needs: build-and-push
     environment: production
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy compose files and init.sql to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,docker-compose.prod.yml,database/init.sql"
+          target: /opt/energygrid
+          strip_components: 0
+
       - name: Write .env to EC2
         uses: appleboy/ssh-action@v1
         with:
@@ -108,7 +120,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: ENV_FILE
           script: |
-            mkdir -p /opt/energygrid
+            mkdir -p /opt/energygrid/database
             printf '%s' "$ENV_FILE" > /opt/energygrid/.env
             chmod 600 /opt/energygrid/.env
         env:
@@ -128,8 +140,8 @@ jobs:
             aws ecr get-login-password --region "$AWS_REGION" \
               | docker login --username AWS --password-stdin "$ECR_REGISTRY"
             echo "=== Pulling new images ==="
-            docker compose pull
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
             echo "=== Restarting services ==="
-            docker compose up -d --remove-orphans
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
             echo "=== Status ==="
-            docker compose ps
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
