@@ -9,6 +9,7 @@ import LoginPage from './components/LoginPage'
 import RegisterPage from './components/RegisterPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminPanel from './components/AdminPanel'
+import SpikeNotification from './components/SpikeNotification'
 import { connectWebSocket } from './services/websocket'
 
 class ErrorBoundary extends React.Component {
@@ -24,12 +25,12 @@ class ErrorBoundary extends React.Component {
         <div style={{ width:'100%', height:'100vh', display:'flex', alignItems:'center',
           justifyContent:'center', backgroundColor:'#0f172a', color:'#ef4444',
           flexDirection:'column', padding:'2rem' }}>
-          <h1>Error en la aplicaci�n</h1>
+          <h1>Error en la aplicación</h1>
           <p>{this.state.error?.message}</p>
           <button onClick={() => window.location.reload()}
             style={{ marginTop:'1rem', padding:'0.5rem 1.5rem', backgroundColor:'#3b82f6',
               color:'white', border:'none', borderRadius:'0.5rem', cursor:'pointer' }}>
-            Recargar p�gina
+            Recargar página
           </button>
         </div>
       )
@@ -41,6 +42,7 @@ class ErrorBoundary extends React.Component {
 function AppContent() {
   const [districts, setDistricts]                   = useState([])
   const [alerts, setAlerts]                         = useState([])
+  const [spikes, setSpikes]                         = useState([])
   const [redistribucion, setRedistribucion]         = useState(null)
   const [redistributedDistricts, setRedistributed]  = useState(new Set())
   const [selectedDistrict, setSelectedDistrict]     = useState(null)
@@ -90,7 +92,7 @@ function AppContent() {
     try {
       await fetch(`${apiBase}/api/districts/${encodeURIComponent(districtId)}/redistribute`, { method: 'DELETE' })
       setRedistributed((prev) => { const n = new Set(prev); n.delete(districtId); return n })
-    } catch (err) { console.error('Error eliminando redistribuci�n:', err) }
+    } catch (err) { console.error('Error eliminando redistribución:', err) }
   }
 
   const openManualPanel = (sourceDistrict) => {
@@ -124,6 +126,22 @@ function AppContent() {
           return [{ id: data.alert_id || Date.now(), district_id: data.district_id,
             tipo_alerta: 'SOBRECARGA_CRITICA', descripcion: data.descripcion }, ...prev]
         })
+      }
+
+      if (data.event === 'PICO_ENERGIA') {
+        const newSpike = {
+          id: Date.now(),
+          nivel: data.nivel,
+          district_id: data.district_id,
+          consumo_kw: data.consumo_kw,
+          incremento_pct: data.incremento_pct,
+          descripcion: data.descripcion,
+          timestamp: new Date().toLocaleTimeString('es-ES'),
+        }
+        setSpikes((prev) => [newSpike, ...prev].slice(0, 5))
+        setTimeout(() => {
+          setSpikes((prev) => prev.filter((s) => s.id !== newSpike.id))
+        }, 15000)
       }
 
       if (data.event === 'REDISTRIBUCION') {
@@ -190,6 +208,11 @@ function AppContent() {
 
   return (
     <div className="app">
+      <SpikeNotification
+        spikes={spikes}
+        onDismiss={(id) => setSpikes((prev) => prev.filter((s) => s.id !== id))}
+      />
+
       <header className="app-header">
         <div className="header-left">
           <h1>⚡ EnergyGrid</h1>
@@ -272,8 +295,8 @@ function AppContent() {
           <div className="redistribucion-content">
             <strong>
               {redistribucion.applied
-                ? `Redistribuci�n aplicada: ${redistribucion.district_id} → ${redistribucion.appliedTo}`
-                : `Sobrecarga en ${redistribucion.district_id} — Elige destino de redistribuci�n`}
+                ? `Redistribución aplicada: ${redistribucion.district_id} → ${redistribucion.appliedTo}`
+                : `Sobrecarga en ${redistribucion.district_id} — Elige destino de redistribución`}
             </strong>
             {!redistribucion.applied && (
               <ul className="redistribucion-list">
@@ -305,9 +328,9 @@ function AppContent() {
         <div className="redistribucion-banner manual-panel">
           <span className="redistribucion-icon">✋</span>
           <div className="redistribucion-content">
-            <strong>Redistribuci�n manual — origen: {manualPanel.sourceDistrict}</strong>
+            <strong>Redistribución manual — origen: {manualPanel.sourceDistrict}</strong>
             <p style={{ fontSize:'0.85rem', color:'#cbd5e1', margin:'0.3rem 0' }}>
-              Selecciona el distrito destino al que se transferir� la carga:
+              Selecciona el distrito destino al que se transferirá la carga:
             </p>
             <ul className="redistribucion-list">
               {availableTargets.map((d) => (
