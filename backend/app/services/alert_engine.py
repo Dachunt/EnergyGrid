@@ -9,6 +9,9 @@ from app.services.alert_file_logger import registrar_alerta_en_archivo
 
 
 async def analizar_metrica(data: dict, pool):
+    if pool is None:
+        return
+
     porcentaje = data.get("porcentaje_uso")
     if porcentaje is None:
         porcentaje = (data["consumo_kw"] / data["capacidad_kw"]) * 100
