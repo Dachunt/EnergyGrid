@@ -6,17 +6,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routes import metrics, districts
+from app.routes import metrics, districts, demo
 from app.routes.monitoring import router as monitoring_router
 from app.routes.auth import router as auth_router
 from app.routes.admin import router as admin_router
-from app.websocket_manager import router as ws_router
+from app.websocket_manager import router as ws_router, manager as ws_manager
 from app.auth import get_password_hash
 from app.db import init_db, close_db
 from app.logging_config import setup_logging
 from app.services.metric_queue import queue_worker
 from app.services.monitoring_orchestrator import MonitoringOrchestrator
 from app.routes.monitoring import set_pool_getter as set_monitoring_pool_getter
+from app.routes.monitoring import get_monitoring_instance
 
 setup_logging()
 logger = logging.getLogger("energygrid")
@@ -31,6 +32,10 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Configuring monitoring pool getter...")
     set_monitoring_pool_getter(lambda: getattr(app.state, "db", None))
     print("[STARTUP] Monitoring pool getter configured")
+
+    print("[STARTUP] Connecting to Redis for WebSocket broadcast...")
+    await ws_manager.connect_redis()
+    print("[STARTUP] Redis connection established")
     
     print("[STARTUP] Starting queue worker...")
     asyncio.create_task(queue_worker(app))
@@ -39,10 +44,20 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Starting data retention cleanup...")
     asyncio.create_task(_data_retention_cleanup(app))
     print("[STARTUP] Data retention cleanup started")
+
+    print("[STARTUP] Starting substation watchdog...")
+    asyncio.create_task(_substation_watchdog(app))
+    print("[STARTUP] Substation watchdog started")
     
     print("[STARTUP] Ensuring default admin user exists...")
     await _ensure_admin(app)
     print("[STARTUP] Admin user verified")
+
+    print("[STARTUP] Initializing monitoring system...")
+    monitor = get_monitoring_instance()
+    await monitor.initialize_monitoring()
+    asyncio.create_task(monitor.start_continuous_monitoring())
+    print("[STARTUP] Monitoring system started!")
 
     print("[STARTUP] Application started successfully!")
     
@@ -70,6 +85,7 @@ app.add_middleware(
 
 app.include_router(metrics.router)
 app.include_router(districts.router)
+app.include_router(demo.router)
 app.include_router(monitoring_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
@@ -132,6 +148,18 @@ async def _data_retention_cleanup(app):
         except Exception as e:
             logger.error(f"Data retention cleanup error: {e}")
         await asyncio.sleep(3600)  # cada hora
+
+
+async def _substation_watchdog(app):
+    while True:
+        try:
+            pool = getattr(app.state, "db", None)
+            if pool:
+                from app.services.alert_engine import detectar_subestaciones_caidas
+                await detectar_subestaciones_caidas(pool)
+        except Exception as e:
+            logger.error(f"Substation watchdog error: {e}")
+        await asyncio.sleep(10)
 
 
 async def _ensure_admin(app):

@@ -38,9 +38,22 @@ services:
       timeout: 5s
       retries: 5
 
+  energygrid-redis:
+    image: redis:7-alpine
+    container_name: ENERGYGRID-REDIS
+    restart: unless-stopped
+    expose:
+      - "6379"
+    networks:
+      - energygrid-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   energygrid-backend:
     build: ./backend
-    container_name: ENERGYGRID-BACKEND
     restart: on-failure:5
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -52,9 +65,10 @@ services:
       MUNIN_MASTER_URL: http://munin-master:8080
       PINGDOM_API_TOKEN: ${PINGDOM_API_TOKEN}
       PINGDOM_EMAIL: ${PINGDOM_EMAIL}
-    ports:
-      - "${BACKEND_PORT}:8000"
-      - "4949:4949"
+      REDIS_URL: redis://energygrid-redis:6379
+    expose:
+      - "8000"
+      - "4949"
     volumes:
       - energygrid-logs:/app/logs
       - ./logs/spikes:/app/logs/spikes
@@ -64,6 +78,19 @@ services:
     depends_on:
       energygrid-db:
         condition: service_healthy
+      energygrid-redis:
+        condition: service_started
+
+  energygrid-nginx:
+    build: ./docker/nginx
+    container_name: ENERGYGRID-NGINX
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT}:8000"
+    networks:
+      - energygrid-net
+    depends_on:
+      - energygrid-backend
 
   energygrid-frontend:
     build: ./frontend

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone, timedelta
 
 from app.websocket_manager import manager
 from app.services.load_balancer import redistribuir_carga
@@ -6,6 +7,98 @@ from app.services.structured_logger import log_event
 from app.services.spike_detector import detectar_pico
 from app.services.notification_service import notificar_pico
 from app.services.alert_file_logger import registrar_alerta_en_archivo
+
+
+_subestaciones_caidas: set[str] = set()
+
+
+async def detectar_subestaciones_caidas(pool):
+    if not pool:
+        return
+    global _subestaciones_caidas
+    now = datetime.now(timezone.utc)
+    threshold = timedelta(seconds=15)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT substation_id, district_id, MAX(timestamp) as last_ts
+            FROM consumo_temporal
+            GROUP BY substation_id, district_id
+        """)
+
+    currently_down: set[str] = set()
+    for row in rows:
+        sid = row["substation_id"]
+        last_ts = row["last_ts"]
+        if last_ts.tzinfo is None:
+            last_ts = last_ts.replace(tzinfo=timezone.utc)
+
+        if now - last_ts > threshold:
+            currently_down.add(sid)
+            if sid not in _subestaciones_caidas:
+                await _handle_substation_down(pool, sid, row["district_id"])
+        else:
+            if sid in _subestaciones_caidas:
+                await _handle_substation_recovered(pool, sid, row["district_id"])
+
+    _subestaciones_caidas = currently_down
+
+
+async def _handle_substation_down(pool, sid: str, district_id: str):
+    alert_id = await crear_alerta(
+        pool,
+        district_id=district_id,
+        tipo="SUBESTACION_DESCONECTADA",
+        descripcion=(
+            f"Subestacion {sid} desconectada. "
+            "No se reciben datos. Redistribuyendo carga."
+        ),
+    )
+    if alert_id is None:
+        return
+
+    await manager.broadcast({
+        "event": "SUBESTACION_DESCONECTADA",
+        "substation_id": sid,
+        "district_id": district_id,
+        "nivel": "CRITICO",
+    })
+    log_event(
+        logging.WARNING,
+        event="SUBESTACION_DESCONECTADA",
+        substation_id=sid,
+        district_id=district_id,
+    )
+
+    sugerencias = await redistribuir_carga(pool, district_id)
+    if sugerencias:
+        await manager.broadcast({
+            "event": "REDISTRIBUCION",
+            "district_id": district_id,
+            "sugerencias": sugerencias,
+        })
+
+
+async def _handle_substation_recovered(pool, sid: str, district_id: str):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE alertas SET resuelta = TRUE
+               WHERE district_id = $1
+                 AND tipo_alerta = 'SUBESTACION_DESCONECTADA'
+                 AND resuelta = FALSE""",
+            district_id,
+        )
+    await manager.broadcast({
+        "event": "SUBESTACION_RECONECTADA",
+        "substation_id": sid,
+        "district_id": district_id,
+    })
+    log_event(
+        logging.INFO,
+        event="SUBESTACION_RECONECTADA",
+        substation_id=sid,
+        district_id=district_id,
+    )
 
 
 async def analizar_metrica(data: dict, pool):
