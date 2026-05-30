@@ -10,9 +10,31 @@ router = APIRouter(prefix="/api/demo", tags=["demo"])
 SIMULATOR_URL = os.getenv("SIMULATOR_URL", "http://localhost:8001")
 
 
+@router.get("/simulator/health")
+async def proxy_simulator_health():
+    """Estado del simulador (health check)"""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{SIMULATOR_URL}/health")
+            return resp.json()
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="Simulador no accesible")
+
+
+@router.get("/simulator/tiempo-virtual")
+async def proxy_simulator_tiempo_virtual():
+    """Tiempo virtual actual del simulador"""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{SIMULATOR_URL}/simulator/tiempo-virtual")
+            return resp.json()
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="Simulador no accesible")
+
+
 @router.post("/simulator/{path:path}")
 async def proxy_simulator(path: str, request: Request):
-    """Proxy genérico para endpoints del simulador"""
+    """Proxy genérico para endpoints POST del simulador"""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             params = dict(request.query_params)

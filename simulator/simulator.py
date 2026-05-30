@@ -12,13 +12,13 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-INTERVAL_MS = int(os.environ.get("INTERVAL_MS", 10000))  # default 10 s
+INTERVAL_MS = int(os.environ.get("INTERVAL_MS", 1000))  # default 1 s
 
-# Ciclo virtual: 12 minutos reales = 24 horas virtuales
-# 30 segundos reales = 1 hora virtual
-# Minuto 6 real = hora 12 virtual (HORA PICO)
-CICLO_VIRTUAL_SEG = 12 * 60   # 720 segundos
-SEGUNDOS_POR_HORA_VIRTUAL = CICLO_VIRTUAL_SEG / 24  # 30 s
+# Ciclo virtual: 24 minutos reales = 24 horas virtuales
+# 60 segundos reales = 1 hora virtual
+# Minuto 12 real = hora 12 virtual (HORA PICO)
+CICLO_VIRTUAL_SEG = 24 * 60   # 1440 segundos
+SEGUNDOS_POR_HORA_VIRTUAL = CICLO_VIRTUAL_SEG / 24  # 60 s
 
 # Spike automático: cada 60 segundos en una subestación aleatoria, dura 30 s
 AUTO_SPIKE_INTERVAL_SEG = 60
@@ -130,7 +130,7 @@ def enviar_metrica(sub: dict, consumo: float) -> bool:
 
 def loop_simulador():
     logger.info(f"Simulador iniciado → {BACKEND_URL} cada {INTERVAL_MS} ms")
-    logger.info(f"Ciclo virtual: {CICLO_VIRTUAL_SEG}s reales = 24h virtuales | Pico en minuto 6")
+    logger.info(f"Ciclo virtual: {CICLO_VIRTUAL_SEG}s reales = 24h virtuales | Pico en minuto 12")
 
     while simulator_state["running"]:
         hora   = get_hora_virtual()
@@ -240,7 +240,7 @@ async def health():
         "peak_hour_active":    es_hora_pico_virtual(hora),
         "hora_virtual":        round(hora, 2),
         "minuto_en_ciclo":     round(minuto, 2),
-        "ciclo_total_min":     12,
+        "ciclo_total_min":     24,
         "interval_ms":         INTERVAL_MS,
         "overload_districts":  list(simulator_state["overload_districts"]),
         "stopped_substations": list(simulator_state["stopped_substations"]),
@@ -428,5 +428,5 @@ if __name__ == "__main__":
     threading.Thread(target=loop_auto_spike,            daemon=True).start()
 
     logger.info(f"Servidor iniciado en :8001 | Intervalo={INTERVAL_MS}ms"
-                f" | Ciclo virtual=12min | Auto-spike cada {AUTO_SPIKE_INTERVAL_SEG}s")
+                f" | Ciclo virtual=24min | Pico=min12 | Auto-spike cada {AUTO_SPIKE_INTERVAL_SEG}s")
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

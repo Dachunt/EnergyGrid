@@ -1,30 +1,30 @@
-# Guía de Demo — EnergyGrid (Ciclo 12 minutos)
+# Guía de Demo — EnergyGrid (Ciclo 24 minutos)
 
-## Comportamiento del simulador actualizado
+## Comportamiento del simulador
 
-| Parámetro | Valor anterior | Valor nuevo |
-|---|---|---|
-| Intervalo de envío | 1 segundo | **10 segundos** |
-| Ciclo día virtual | 24 minutos | **12 minutos** |
-| 1 hora virtual equivale a | 1 minuto real | **30 segundos reales** |
-| Hora pico automática | 18h–21h virtual | **11h–13h virtual (minuto 6 real)** |
-| Spike automático | No existía | **Cada 60 seg en subestación aleatoria, dura 30 seg** |
+| Parámetro | Valor |
+|---|---|
+| Intervalo de envío | **1 segundo** |
+| Ciclo día virtual | **24 minutos** |
+| 1 hora virtual equivale a | **60 segundos reales** |
+| Hora pico automática | **11h–13h virtual (minuto 11–13 real)** |
+| Spike automático | **Cada 60 seg en subestación aleatoria, dura 30 seg** |
 
-### Mapa del ciclo de 12 minutos
+### Mapa del ciclo de 24 minutos
 
 ```
 Minuto real  │  Hora virtual  │  Comportamiento
 ─────────────┼────────────────┼──────────────────────────────────
      0        │      0 h       │  Medianoche — consumo bajo (30-65%)
-     1        │      2 h       │  Madrugada  — consumo bajo
-     1.5      │      3 h       │  Inicio mañana
-     3        │      6 h       │  Mañana     — consumo medio (70-85%)
-     4.5      │      9 h       │  Fin mañana
-     5.5      │     11 h       │  Pre-pico
-     6        │     12 h       │  *** HORA PICO *** (88-98% todas las subestaciones)
-     6.5      │     13 h       │  Fin hora pico
-     9        │     18 h       │  Tarde — consumo bajo
-    12        │     24 h       │  Fin ciclo → vuelve a minuto 0
+     2        │      2 h       │  Madrugada  — consumo bajo
+     3        │      3 h       │  Inicio mañana
+     6        │      6 h       │  Mañana     — consumo medio (70-85%)
+     9        │      9 h       │  Fin mañana
+    11        │     11 h       │  Pre-pico
+    12        │     12 h       │  *** HORA PICO *** (88-98% todas las subestaciones)
+    13        │     13 h       │  Fin hora pico
+    18        │     18 h       │  Tarde — consumo bajo
+    24        │     24 h       │  Fin ciclo → vuelve a minuto 0
 ─────────────┴────────────────┴──────────────────────────────────
 Además: cada 60 seg → spike automático en 1 subestación aleatoria (dura 30 seg)
 ```
@@ -99,11 +99,11 @@ curl -X POST http://localhost:8001/simulator/reset
      "hora_virtual": 4.6,
      "es_hora_pico": false,
      "descripcion": "Periodo normal (baja demanda)",
-     "proximo_pico_en_seg": 189
+     "proximo_pico_en_seg": 438
    }
    ```
-3. Esperar al **minuto 6** del ciclo — las tarjetas de todos los distritos subirán automáticamente a colores naranja/rojo
-4. Observar que al minuto ~6.5 el consumo vuelve a bajar solo
+3. Esperar al **minuto 12** del ciclo — las tarjetas de todos los distritos subirán automáticamente a colores naranja/rojo
+4. Observar que al minuto ~13 el consumo vuelve a bajar solo
 
 **Evidencia en logs**:
 ```bash
@@ -159,23 +159,29 @@ docker compose logs energygrid-backend | grep SOBRECARGA
 
 ---
 
-## Demo 4: Escalar a 2 backends durante hora pico
+## Demo 4: Escalar a 2 backends durante hora pico (minuto 12)
 
-**Qué muestra**: Alta carga → escalar horizontalmente → el frontend no se desconecta (Redis mantiene WebSockets).
+**Qué muestra**: Alta carga en minuto 12 → escalar horizontalmente → el frontend no se desconecta (Redis mantiene WebSockets).
 
-**Paso 1** — Escalar:
+**Paso 1** — Verificar que el pico está llegando (ejecutar alrededor del minuto 10-11):
+```bash
+curl http://localhost:8001/simulator/tiempo-virtual
+# "proximo_pico_en_seg" debe ser < 120
+```
+
+**Paso 2** — Escalar a 2 backends:
 ```bash
 docker compose up --scale energygrid-backend=2 -d
 ```
 
-**Paso 2** — Verificar 2 instancias:
+**Paso 3** — Verificar 2 instancias:
 ```bash
 docker ps --format "table {{.Names}}\t{{.Status}}" | grep backend
 ```
 
-**Paso 3** — El frontend sigue actualizándose sin corte.
+**Paso 4** — En el minuto 12, todos los distritos suben a naranja/rojo. El frontend **no se desconecta**.
 
-**Paso 4** — Volver a 1 instancia:
+**Paso 5** — Volver a 1 instancia después del pico (minuto 13+):
 ```bash
 docker compose up -d
 ```
@@ -282,20 +288,27 @@ curl http://localhost:8000/api/districts
 # Ver estado de todos los contenedores
 docker compose ps
 
-# Ver tiempo virtual actual del simulador
+# Ver tiempo virtual actual del simulador (desde EC2)
 curl http://localhost:8001/simulator/tiempo-virtual
+
+# Ver tiempo virtual (desde fuera, sin SSH)
+curl http://98.91.49.34:8000/api/demo/simulator/tiempo-virtual
 
 # Ver health del simulador (incluye auto-spike activo)
 curl http://localhost:8001/health
+# Desde fuera:
+curl http://98.91.49.34:8000/api/demo/simulator/health
 
 # Reset completo del simulador
 curl -X POST http://localhost:8001/simulator/reset
+# Desde fuera:
+curl -X POST http://98.91.49.34:8000/api/demo/simulator/reset
 
 # Logs en tiempo real
 docker compose logs -f energygrid-simulator   # ciclo, picos, spikes
 docker compose logs -f energygrid-backend     # alertas, métricas recibidas
 
-# Escalar backend
+# Escalar backend (para demo de balanceo en minuto 12)
 docker compose up --scale energygrid-backend=2 -d
 
 # Volver a 1 backend
