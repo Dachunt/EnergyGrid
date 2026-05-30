@@ -50,6 +50,7 @@ jobs:
             --instance-os-user ec2-user \
             --ssh-public-key "$PUBLIC_KEY"
           printf '%s\n' \
+            'set -a; source /opt/energygrid/.env; set +a' \
             'set -e' \
             'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY' \
             'cd /opt/energygrid' \
