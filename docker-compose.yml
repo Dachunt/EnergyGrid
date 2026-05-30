@@ -5,8 +5,6 @@ networks:
 volumes:
   energygrid-db-data:
   energygrid-logs:
-  energygrid-spike-logs:
-  energygrid-alert-logs:
   munin-rrd:
   munin-html:
 
@@ -59,8 +57,8 @@ services:
       - "4949:4949"
     volumes:
       - energygrid-logs:/app/logs
-      - energygrid-spike-logs:/app/logs/spikes
-      - energygrid-alert-logs:/app/logs/alertas
+      - ./logs/spikes:/app/logs/spikes
+      - ./logs/alertas:/app/logs/alertas
     networks:
       - energygrid-net
     depends_on:
