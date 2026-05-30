@@ -17,6 +17,7 @@ from app.logging_config import setup_logging
 from app.services.metric_queue import queue_worker
 from app.services.monitoring_orchestrator import MonitoringOrchestrator
 from app.routes.monitoring import set_pool_getter as set_monitoring_pool_getter
+from app.routes.monitoring import get_monitoring_instance
 
 setup_logging()
 logger = logging.getLogger("energygrid")
@@ -51,6 +52,12 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Ensuring default admin user exists...")
     await _ensure_admin(app)
     print("[STARTUP] Admin user verified")
+
+    print("[STARTUP] Initializing monitoring system...")
+    monitor = get_monitoring_instance()
+    await monitor.initialize_monitoring()
+    asyncio.create_task(monitor.start_continuous_monitoring())
+    print("[STARTUP] Monitoring system started!")
 
     print("[STARTUP] Application started successfully!")
     
