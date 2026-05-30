@@ -1,6 +1,5 @@
 import os
 import re
-from datetime import datetime, timezone
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
