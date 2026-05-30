@@ -1,0 +1,14 @@
+#!/bin/sh
+IFACE="${IFACE:-eth0}"
+if [ "$1" = "config" ]; then
+  echo "graph_title Network traffic ($IFACE)"
+  echo "graph_vlabel bytes/sec"
+  echo "graph_category network"
+  echo "net_rx.label received"
+  echo "net_tx.label sent"
+  exit 0
+fi
+read -r rx tx < /sys/class/net/"$IFACE"/statistics/rx_bytes 2>/dev/null
+read -r tx _ < /sys/class/net/"$IFACE"/statistics/tx_bytes 2>/dev/null
+echo "net_rx.value ${rx:-0}"
+echo "net_tx.value ${tx:-0}"

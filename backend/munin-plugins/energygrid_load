@@ -1,0 +1,14 @@
+#!/bin/sh
+if [ "$1" = "config" ]; then
+  echo "graph_title System load"
+  echo "graph_vlabel load"
+  echo "graph_category system"
+  echo "load_1min.label 1 minute"
+  echo "load_5min.label 5 minutes"
+  echo "load_15min.label 15 minutes"
+  exit 0
+fi
+read -r one five fifteen _ < /proc/loadavg
+echo "load_1min.value $one"
+echo "load_5min.value $five"
+echo "load_15min.value $fifteen"

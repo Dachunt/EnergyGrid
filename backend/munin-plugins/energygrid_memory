@@ -1,0 +1,19 @@
+#!/bin/sh
+if [ "$1" = "config" ]; then
+  echo "graph_title Memory usage"
+  echo "graph_vlabel bytes"
+  echo "graph_category system"
+  echo "mem_total.label total"
+  echo "mem_used.label used"
+  echo "mem_free.label free"
+  echo "mem_buffers.label buffers"
+  echo "mem_cached.label cached"
+  exit 0
+fi
+awk '/^MemTotal:/{t=$2} /^MemFree:/{f=$2} /^MemAvailable:/{a=$2} /^Buffers:/{b=$2} /^Cached:/{c=$2} END{
+  print "mem_total.value", t*1024;
+  print "mem_free.value", f*1024;
+  print "mem_used.value", (t-f)*1024;
+  print "mem_buffers.value", (b+0)*1024;
+  print "mem_cached.value", (c+0)*1024;
+}' /proc/meminfo

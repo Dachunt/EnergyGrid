@@ -5,12 +5,13 @@ Integra Munin, Pingdom y Slow Query Log en un sistema unificado
 
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 
 from app.services.munin_monitor import MuninMonitor
 from app.services.pingdom_guard import PingdomGuard
 from app.services.slow_query_log import SlowQueryLog
+from app.services.pg_stat_collector import PgStatCollector
 
 logger = logging.getLogger("energygrid")
 
@@ -18,10 +19,11 @@ logger = logging.getLogger("energygrid")
 class MonitoringOrchestrator:
     """Orquestador central de monitoreo del sistema"""
 
-    def __init__(self):
+    def __init__(self, pool_getter=None):
         self.munin = MuninMonitor()
         self.pingdom = PingdomGuard(check_interval=60)
         self.slow_query_log = SlowQueryLog(slow_query_threshold_ms=500)
+        self.pg_stat = PgStatCollector(pool_getter=pool_getter or (lambda: None), interval_seconds=60)
         self.monitoring_active = False
         self.background_tasks = []
 
@@ -85,12 +87,14 @@ class MonitoringOrchestrator:
         # Crear tareas de background
         munin_task = asyncio.create_task(self._munin_loop())
         pingdom_task = asyncio.create_task(self._pingdom_loop())
+        pg_stat_task = asyncio.create_task(self._pg_stat_loop())
 
-        self.background_tasks = [munin_task, pingdom_task]
+        self.background_tasks = [munin_task, pingdom_task, pg_stat_task]
 
     async def stop_continuous_monitoring(self):
         """Detiene monitoreo continuo"""
         self.monitoring_active = False
+        self.pg_stat.stop()
 
         for task in self.background_tasks:
             task.cancel()
@@ -109,12 +113,33 @@ class MonitoringOrchestrator:
 
     async def _pingdom_loop(self):
         """Loop de verificación Pingdom"""
+        sync_interval = 0
         while self.monitoring_active:
             try:
                 await self.pingdom.run_checks()
-                await asyncio.sleep(60)  # Verificar cada 60 segundos
+
+                # Sync with real Pingdom API every 5 min (300s)
+                sync_interval += 60
+                if sync_interval >= 300:
+                    await self.pingdom.sync_with_pingdom()
+                    await self.pingdom.fetch_pingdom_results()
+                    sync_interval = 0
+
+                await asyncio.sleep(60)
             except Exception as e:
                 logger.error(f"Error in Pingdom loop: {e}")
+                await asyncio.sleep(10)
+
+    async def _pg_stat_loop(self):
+        """Loop de recolección de pg_stat_statements"""
+        while self.monitoring_active:
+            try:
+                data = await self.pg_stat.collect()
+                if data:
+                    self.slow_query_log.ingest_from_pg_stats(data)
+                await asyncio.sleep(60)  # Recolectar cada 60 segundos
+            except Exception as e:
+                logger.error(f"Error in pg_stat loop: {e}")
                 await asyncio.sleep(10)
 
     def log_database_query(

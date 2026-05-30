@@ -19,6 +19,12 @@ def get_monitoring_instance() -> MonitoringOrchestrator:
     return monitoring
 
 
+def set_pool_getter(getter):
+    """Configura el pool_getter para pg_stat_collector"""
+    inst = get_monitoring_instance()
+    inst.pg_stat.pool_getter = getter
+
+
 # ============== ENDPOINTS DE SALUD GENERAL ==============
 
 
@@ -158,6 +164,22 @@ async def get_query_breakdown():
     return monitor.slow_query_log.get_query_type_breakdown()
 
 
+@router.get("/queries/pg_stats")
+async def get_pg_stat_statements():
+    """Obtiene datos crudos de pg_stat_statements"""
+    monitor = get_monitoring_instance()
+    snapshot = monitor.pg_stat.get_last_snapshot()
+    if not snapshot:
+        return {"available": False, "queries": []}
+    return {
+        "available": True,
+        "timestamp": snapshot["timestamp"],
+        "total_queries": snapshot["total_queries"],
+        "total_time_ms": snapshot["total_time_ms"],
+        "queries": snapshot["queries"],
+    }
+
+
 @router.get("/queries/recent")
 async def get_recent_queries(
     minutes: int = Query(5, ge=1, le=60),
@@ -196,9 +218,15 @@ async def stop_monitoring():
 async def get_monitoring_status():
     """Obtiene estado del sistema de monitoreo"""
     monitor = get_monitoring_instance()
+    pg_snap = monitor.pg_stat.get_last_snapshot()
     return {
         "monitoring_active": monitor.monitoring_active,
         "munin_metrics_count": len(monitor.munin.metrics_history),
         "pingdom_checks_count": len(monitor.pingdom.uptime_history),
         "database_queries_logged": monitor.slow_query_log.stats["total_queries"],
+        "data_source": monitor.slow_query_log.data_source,
+        "pg_stat_statements": {
+            "available": pg_snap is not None,
+            "cached_queries": len(pg_snap["queries"]) if pg_snap else 0,
+        },
     }

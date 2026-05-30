@@ -1,0 +1,13 @@
+#!/bin/sh
+if [ "$1" = "config" ]; then
+  echo "graph_title Processes"
+  echo "graph_vlabel count"
+  echo "graph_category processes"
+  echo "proc_total.label total"
+  echo "proc_running.label running"
+  exit 0
+fi
+total=$(ls /proc | grep -c '^[0-9]' 2>/dev/null)
+running=$(ps -eo stat= 2>/dev/null | grep -c '^R' 2>/dev/null)
+echo "proc_total.value ${total:-0}"
+echo "proc_running.value ${running:-0}"

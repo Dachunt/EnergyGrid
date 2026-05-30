@@ -12,6 +12,12 @@ from enum import Enum
 logger = logging.getLogger("energygrid")
 
 
+class PgStatSource(str, Enum):
+    NONE = "none"
+    APP = "application_wrapper"
+    PG_STAT_STATEMENTS = "pg_stat_statements"
+
+
 class QuerySeverity(str, Enum):
     """Severidad de queries lentas"""
     INFO = "info"
@@ -39,6 +45,76 @@ class SlowQueryLog:
             "average_time_ms": 0,
             "max_time_ms": 0,
         }
+        self.data_source = PgStatSource.NONE
+
+    def set_data_source(self, source: PgStatSource):
+        self.data_source = source
+
+    def ingest_from_pg_stats(self, rows: List[Dict[str, Any]]):
+        """Ingiere datos desde pg_stat_statements"""
+        if not rows:
+            return
+
+        self.data_source = PgStatSource.PG_STAT_STATEMENTS
+        total_time_sum = 0.0
+        max_time = 0.0
+        total_queries = 0
+        slow_count = 0
+        count = len(rows)
+
+        for row in rows:
+            mean = row.get("mean_exec_time", 0)
+            calls = row.get("calls", 0)
+            total_q = mean * calls
+            total_time_sum += total_q
+            total_queries += calls
+            max_time = max(max_time, row.get("max_exec_time", 0))
+            if mean > self.slow_query_threshold_ms:
+                slow_count += calls
+
+            self.query_log.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "query": row.get("query", "")[:500],
+                "query_type": "UNKNOWN",
+                "execution_time_ms": round(mean, 2),
+                "is_slow": mean > self.slow_query_threshold_ms,
+                "severity": QuerySeverity.CRITICAL if mean > 2000 else (QuerySeverity.WARNING if mean > 1000 else QuerySeverity.INFO),
+                "status": "success",
+                "rows_affected": row.get("rows", 0),
+                "error": None,
+                "source": "pg_stat_statements",
+                "queryid": row.get("queryid"),
+                "calls": calls,
+                "cache_hit_ratio": row.get("cache_hit_ratio", 0),
+            })
+
+            pattern = " ".join(row.get("query", "").split()[:5])
+            if pattern not in self.query_patterns:
+                self.query_patterns[pattern] = {
+                    "pattern": pattern,
+                    "count": 0,
+                    "slow_count": 0,
+                    "total_time_ms": 0,
+                    "average_time_ms": 0,
+                    "max_time_ms": 0,
+                    "min_time_ms": float("inf"),
+                }
+            ps = self.query_patterns[pattern]
+            ps["count"] += calls
+            ps["total_time_ms"] += total_q
+            ps["average_time_ms"] = round(ps["total_time_ms"] / ps["count"], 2)
+            ps["max_time_ms"] = max(ps["max_time_ms"], mean)
+            ps["min_time_ms"] = min(ps["min_time_ms"], mean)
+            if mean > self.slow_query_threshold_ms:
+                ps["slow_count"] += calls
+
+        if len(self.query_log) > self.max_history:
+            self.query_log = self.query_log[-self.max_history:]
+
+        self.stats["total_queries"] = total_queries
+        self.stats["slow_queries"] = slow_count
+        self.stats["average_time_ms"] = round(total_time_sum / count, 2) if count else 0
+        self.stats["max_time_ms"] = round(max_time, 2)
 
     def log_query(
         self,

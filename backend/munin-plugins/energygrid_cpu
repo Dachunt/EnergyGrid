@@ -1,0 +1,15 @@
+#!/bin/sh
+if [ "$1" = "config" ]; then
+  echo "graph_title CPU usage"
+  echo "graph_vlabel %"
+  echo "graph_category system"
+  echo "cpu_user.label user"
+  echo "cpu_system.label system"
+  echo "cpu_idle.label idle"
+  exit 0
+fi
+# Read first line of /proc/stat for cumulative CPU ticks
+read -r _ user nice system idle iowait irq softirq steal < /proc/stat
+echo "cpu_user.value ${user:-0}"
+echo "cpu_system.value ${system:-0}"
+echo "cpu_idle.value ${idle:-0}"
