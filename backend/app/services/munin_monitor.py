@@ -3,10 +3,11 @@ Munin Monitor - Sensor universal de métricas del sistema
 Monitorea: procesos activos, memoria, red, disco y carga del servidor
 """
 
+import os
 import psutil
 import time
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger("energygrid")
@@ -18,6 +19,23 @@ class MuninMonitor:
     def __init__(self):
         self.metrics_history = []
         self.max_history = 100
+        self.munin_master_url = os.getenv("MUNIN_MASTER_URL", "")
+        self.munin_available = False
+
+    def get_munin_master_status(self) -> Dict[str, Any]:
+        """Intenta obtener estado desde Munin Master"""
+        if not self.munin_master_url:
+            return {"available": False, "reason": "no_url_configured"}
+        try:
+            import httpx
+            resp = httpx.get(f"{self.munin_master_url}/munin", timeout=5)
+            if resp.status_code == 200:
+                self.munin_available = True
+                return {"available": True, "master_url": self.munin_master_url}
+            else:
+                return {"available": False, "reason": f"HTTP {resp.status_code}"}
+        except Exception as e:
+            return {"available": False, "reason": str(e)}
 
     def get_cpu_metrics(self) -> Dict[str, Any]:
         """Obtiene métricas de CPU"""

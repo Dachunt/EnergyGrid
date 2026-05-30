@@ -16,6 +16,7 @@ from app.db import init_db, close_db
 from app.logging_config import setup_logging
 from app.services.metric_queue import queue_worker
 from app.services.monitoring_orchestrator import MonitoringOrchestrator
+from app.routes.monitoring import set_pool_getter as set_monitoring_pool_getter
 
 setup_logging()
 logger = logging.getLogger("energygrid")
@@ -26,10 +27,18 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Initializing database...")
     await init_db(app)
     print("[STARTUP] Database initialized")
+
+    print("[STARTUP] Configuring monitoring pool getter...")
+    set_monitoring_pool_getter(lambda: getattr(app.state, "db", None))
+    print("[STARTUP] Monitoring pool getter configured")
     
     print("[STARTUP] Starting queue worker...")
     asyncio.create_task(queue_worker(app))
     print("[STARTUP] Queue worker started")
+
+    print("[STARTUP] Starting data retention cleanup...")
+    asyncio.create_task(_data_retention_cleanup(app))
+    print("[STARTUP] Data retention cleanup started")
     
     print("[STARTUP] Ensuring default admin user exists...")
     await _ensure_admin(app)
@@ -105,6 +114,24 @@ async def dashboard():
     if dashboard_path.exists():
         return FileResponse(dashboard_path)
     return {"message": "Dashboard not found"}
+
+
+async def _data_retention_cleanup(app):
+    """Borra registros de consumo_temporal mayores a 7 días, cada hora"""
+    while True:
+        try:
+            pool = getattr(app.state, "db", None)
+            if pool:
+                async with pool.acquire() as conn:
+                    result = await conn.execute(
+                        "DELETE FROM consumo_temporal WHERE timestamp < NOW() - INTERVAL '7 days'"
+                    )
+                    deleted = result.split()[-1] if result else "0"
+                    if int(deleted) > 0:
+                        logger.info("Data retention cleanup completed", extra={"deleted_records": int(deleted)})
+        except Exception as e:
+            logger.error(f"Data retention cleanup error: {e}")
+        await asyncio.sleep(3600)  # cada hora
 
 
 async def _ensure_admin(app):

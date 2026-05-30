@@ -4,12 +4,16 @@ Verifica minuto a minuto que la plataforma responde y puede utilizarse
 """
 
 import asyncio
+import os
 import httpx
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from urllib.parse import urlparse
 import logging
 
 logger = logging.getLogger("energygrid")
+
+PINGDOM_API_BASE = "https://api.pingdom.com/api/3.1"
 
 
 class PingdomGuard:
@@ -27,6 +31,125 @@ class PingdomGuard:
         self.max_history = 1440  # 24 horas de datos por minuto
         self.endpoints = {}
         self.last_check = None
+        self._pingdom_token = os.getenv("PINGDOM_API_TOKEN", "")
+        self._pingdom_email = os.getenv("PINGDOM_EMAIL", "")
+        self._pingdom_available = bool(self._pingdom_token and self._pingdom_email)
+        self._pingdom_check_map: Dict[str, int] = {}  # local_name -> pingdom_check_id
+
+    def _pingdom_headers(self, content_type: bool = False) -> Dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self._pingdom_token}",
+        }
+        if content_type:
+            headers["Content-Type"] = "application/json"
+        return headers
+
+    async def sync_with_pingdom(self) -> Dict[str, Any]:
+        """Sincroniza checks locales con Pingdom API"""
+        if not self._pingdom_available:
+            return {"status": "skipped", "reason": "no_api_credentials"}
+
+        result = {"created": 0, "updated": 0, "errors": 0, "remote_checks": []}
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                # Get existing checks from Pingdom
+                resp = await client.get(
+                    f"{PINGDOM_API_BASE}/checks",
+                    headers=self._pingdom_headers(),
+                )
+                if resp.status_code != 200:
+                    logger.error(f"Pingdom API error: {resp.status_code} {resp.text}")
+                    return {"status": "error", "detail": resp.text}
+
+                data = resp.json()
+                remote_checks = {c["name"]: c for c in data.get("checks", [])}
+                result["remote_checks"] = list(remote_checks.keys())
+
+                # Sync each local endpoint
+                for name, cfg in self.endpoints.items():
+                    pingdom_name = f"EnergyGrid-{name}"
+                    parsed = urlparse(cfg["url"])
+                    host = parsed.hostname or cfg["url"]
+                    url_path = parsed.path or "/"
+                    payload = {
+                        "name": pingdom_name,
+                        "host": host,
+                        "url": url_path,
+                        "resolution": 1,  # 1 minute
+                        "type": "http",
+                    }
+
+                    if pingdom_name in remote_checks:
+                        # Update existing check
+                        cid = remote_checks[pingdom_name]["id"]
+                        update_resp = await client.put(
+                            f"{PINGDOM_API_BASE}/checks/{cid}",
+                            headers=self._pingdom_headers(content_type=True),
+                            json=payload,
+                        )
+                        if update_resp.status_code in (200, 201):
+                            result["updated"] += 1
+                        else:
+                            result["errors"] += 1
+                        self._pingdom_check_map[name] = cid
+                    else:
+                        # Create new check
+                        create_resp = await client.post(
+                            f"{PINGDOM_API_BASE}/checks",
+                            headers=self._pingdom_headers(content_type=True),
+                            json=payload,
+                        )
+                        if create_resp.status_code in (200, 201):
+                            cid = create_resp.json().get("check", {}).get("id")
+                            if cid:
+                                self._pingdom_check_map[name] = cid
+                                result["created"] += 1
+                        else:
+                            result["errors"] += 1
+
+                result["status"] = "ok"
+
+        except httpx.TimeoutException:
+            logger.error("Pingdom API timeout")
+            result["status"] = "error"
+            result["detail"] = "timeout"
+        except Exception as e:
+            logger.error(f"Pingdom API error: {e}")
+            result["status"] = "error"
+            result["detail"] = str(e)
+
+        logger.info("Pingdom sync completed", extra=result)
+        return result
+
+    async def fetch_pingdom_results(self) -> List[Dict[str, Any]]:
+        """Obtiene resultados de checks desde Pingdom"""
+        if not self._pingdom_available or not self._pingdom_check_map:
+            return []
+
+        results = []
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                for local_name, check_id in self._pingdom_check_map.items():
+                    resp = await client.get(
+                        f"{PINGDOM_API_BASE}/checks/{check_id}",
+                        headers=self._pingdom_headers(),
+                        params={"include_details": True},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json().get("check", {})
+                        results.append({
+                            "local_name": local_name,
+                            "pingdom_id": check_id,
+                            "status": data.get("status", "unknown"),
+                            "last_test_time": data.get("lasttesttime"),
+                            "last_response_time": data.get("lastresponsetime"),
+                            "resolution": data.get("resolution"),
+                        })
+        except Exception as e:
+            logger.error(f"Error fetching Pingdom results: {e}")
+
+        return results
 
     def add_endpoint(
         self, name: str, url: str, timeout: int = 5, expected_status: int = 200

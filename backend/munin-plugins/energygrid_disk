@@ -1,0 +1,12 @@
+#!/bin/sh
+MOUNT="${MOUNT:-/}"
+if [ "$1" = "config" ]; then
+  echo "graph_title Disk usage"
+  echo "graph_vlabel bytes"
+  echo "graph_category disk"
+  echo "disk_total.label total"
+  echo "disk_used.label used"
+  echo "disk_free.label free"
+  exit 0
+fi
+df "$MOUNT" | awk 'NR==2{print "disk_total.value", $2*1024; print "disk_used.value", $3*1024; print "disk_free.value", $4*1024}'
