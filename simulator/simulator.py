@@ -1,10 +1,8 @@
 import os
 import time
 import random
-import math
 import logging
 import threading
-from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -14,7 +12,17 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-INTERVAL_MS = int(os.environ.get("INTERVAL_MS", 1000))
+INTERVAL_MS = int(os.environ.get("INTERVAL_MS", 10000))  # default 10 s
+
+# Ciclo virtual: 12 minutos reales = 24 horas virtuales
+# 30 segundos reales = 1 hora virtual
+# Minuto 6 real = hora 12 virtual (HORA PICO)
+CICLO_VIRTUAL_SEG = 12 * 60   # 720 segundos
+SEGUNDOS_POR_HORA_VIRTUAL = CICLO_VIRTUAL_SEG / 24  # 30 s
+
+# Spike automático: cada 60 segundos en una subestación aleatoria, dura 30 s
+AUTO_SPIKE_INTERVAL_SEG = 60
+AUTO_SPIKE_DURACION_SEG  = 30
 
 FALLBACK_SUBESTACIONES = [
     {"id": "SSS001", "distrito": "San Salvador",      "capacidad": 5000},
@@ -27,17 +35,166 @@ FALLBACK_SUBESTACIONES = [
 subestaciones = list(FALLBACK_SUBESTACIONES)
 subestaciones_lock = threading.Lock()
 
-# Estado global del simulador
 simulator_state = {
-    "running": True,
-    "peak_hour_active": False,
-    "overload_districts": set(),
-    "stopped_substations": set(),
-    "burst_multiplier": 1,
+    "running":               True,
+    "peak_hour_active":      False,
+    "overload_districts":    set(),
+    "stopped_substations":   set(),
+    "burst_multiplier":      1,
     "redistribution_factors": {},
-    "redistribution_pairs": {},  # source -> target
+    "redistribution_pairs":  {},
+    "auto_spike_sub":        None,   # subestación con spike automático activo
+    "auto_spike_until":      0,      # timestamp hasta el que dura el spike
 }
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("simulator")
+
+
+# ── Hora virtual ───────────────────────────────────────────────────────────────
+
+def get_hora_virtual() -> float:
+    """
+    Ciclo de 24 horas virtuales cada 12 minutos reales.
+    30 segundos reales = 1 hora virtual.
+    Minuto 6 real → hora 12 virtual (mediodía / HORA PICO).
+    """
+    segundos_en_ciclo = time.time() % CICLO_VIRTUAL_SEG
+    return (segundos_en_ciclo / CICLO_VIRTUAL_SEG) * 24
+
+
+def minuto_en_ciclo() -> float:
+    """Minuto actual dentro del ciclo de 12 minutos (0-12)."""
+    return (time.time() % CICLO_VIRTUAL_SEG) / 60
+
+
+def es_hora_pico_virtual(hora: float) -> bool:
+    """Hora pico virtual: 11h-13h (centrado en el minuto 6 del ciclo real)."""
+    return 11 <= hora <= 13
+
+
+# ── Consumo ────────────────────────────────────────────────────────────────────
+
+def calcular_consumo(capacidad: float, hora: float, distrito: str = None) -> float:
+    """
+    Calcula consumo según la hora virtual:
+    - Hora pico (11-13 h virtual / minuto ~6 real): 88-98 %  ← PICO AUTOMÁTICO
+    - Mañana    (6-9  h virtual / minuto ~3 real):  70-85 %
+    - Nocturno  (resto):                             30-65 %
+    Respeta redistribución si está activa para el distrito.
+    """
+    if distrito and distrito in simulator_state["redistribution_factors"]:
+        factor = simulator_state["redistribution_factors"][distrito]
+        factor += random.uniform(-0.03, 0.03)
+        return round(capacidad * max(0.20, min(factor, 0.90)), 2)
+
+    if es_hora_pico_virtual(hora):
+        factor = random.uniform(0.88, 0.98)
+    elif 6 <= hora <= 9:
+        factor = random.uniform(0.70, 0.85)
+    else:
+        factor = random.uniform(0.30, 0.65)
+
+    return round(capacidad * factor, 2)
+
+
+def inyectar_sobrecarga(sub: dict) -> float:
+    """Spike de sobrecarga: 96-100 % de capacidad."""
+    return round(sub["capacidad"] * random.uniform(0.96, 1.00), 2)
+
+
+# ── Envío de métricas ──────────────────────────────────────────────────────────
+
+def enviar_metrica(sub: dict, consumo: float) -> bool:
+    payload = {
+        "substation_id": sub["id"],
+        "district_id":   sub["distrito"],
+        "consumo_kw":    consumo,
+        "capacidad_kw":  sub["capacidad"],
+        "timestamp":     datetime.utcnow().isoformat(),
+    }
+    try:
+        resp = requests.post(f"{BACKEND_URL}/api/metrics", json=payload, timeout=5)
+        if resp.status_code != 200:
+            logger.warning(f"Status {resp.status_code} para {sub['id']}")
+        return True
+    except Exception as e:
+        logger.error(f"Error enviando {sub['id']}: {e}")
+        return False
+
+
+# ── Loop principal ─────────────────────────────────────────────────────────────
+
+def loop_simulador():
+    logger.info(f"Simulador iniciado → {BACKEND_URL} cada {INTERVAL_MS} ms")
+    logger.info(f"Ciclo virtual: {CICLO_VIRTUAL_SEG}s reales = 24h virtuales | Pico en minuto 6")
+
+    while simulator_state["running"]:
+        hora   = get_hora_virtual()
+        minuto = minuto_en_ciclo()
+        ahora  = time.time()
+
+        # Spike automático: limpiar si expiró
+        if (simulator_state["auto_spike_sub"]
+                and ahora > simulator_state["auto_spike_until"]):
+            sub_expirado = simulator_state["auto_spike_sub"]
+            simulator_state["auto_spike_sub"] = None
+            logger.info(f"[AUTO-SPIKE] Spike automático finalizado en {sub_expirado}")
+
+        interval = (INTERVAL_MS / 1000) / simulator_state["burst_multiplier"]
+
+        with subestaciones_lock:
+            current = list(subestaciones)
+
+        for sub in current:
+            if sub["id"] in simulator_state["stopped_substations"]:
+                continue
+
+            en_spike_auto = (sub["id"] == simulator_state["auto_spike_sub"]
+                             and ahora <= simulator_state["auto_spike_until"])
+
+            if sub["distrito"] in simulator_state["redistribution_factors"]:
+                consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
+            elif sub["distrito"] in simulator_state["overload_districts"] or en_spike_auto:
+                consumo = inyectar_sobrecarga(sub)
+                if en_spike_auto:
+                    logger.info(f"[AUTO-SPIKE] {sub['id']} ({sub['distrito']}): {consumo} kW"
+                                f" | min {minuto:.1f}/12 | hora virtual {hora:.1f}")
+                else:
+                    logger.info(f"[OVERLOAD] {sub['id']} ({sub['distrito']}): {consumo} kW")
+            else:
+                consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
+                if es_hora_pico_virtual(hora):
+                    logger.info(f"[HORA-PICO] {sub['id']}: {consumo} kW"
+                                f" | min {minuto:.1f}/12 | hora virtual {hora:.1f}")
+
+            enviar_metrica(sub, consumo)
+
+        time.sleep(interval)
+
+
+# ── Spike automático cada 60 segundos ─────────────────────────────────────────
+
+def loop_auto_spike():
+    """Cada AUTO_SPIKE_INTERVAL_SEG segundos inyecta un spike en una subestación aleatoria."""
+    time.sleep(AUTO_SPIKE_INTERVAL_SEG)   # esperar el primer ciclo antes de empezar
+    while simulator_state["running"]:
+        with subestaciones_lock:
+            activas = [s for s in subestaciones
+                       if s["id"] not in simulator_state["stopped_substations"]]
+        if activas:
+            sub_elegida = random.choice(activas)
+            simulator_state["auto_spike_sub"]   = sub_elegida["id"]
+            simulator_state["auto_spike_until"] = time.time() + AUTO_SPIKE_DURACION_SEG
+            logger.info(f"[AUTO-SPIKE] Spike iniciado en {sub_elegida['id']}"
+                        f" ({sub_elegida['distrito']}) durante {AUTO_SPIKE_DURACION_SEG}s")
+        time.sleep(AUTO_SPIKE_INTERVAL_SEG)
+
+
+# ── Actualización de subestaciones desde backend ───────────────────────────────
 
 def fetch_subestaciones():
     global subestaciones
@@ -50,16 +207,16 @@ def fetch_subestaciones():
         for d in data:
             for s in d.get("substations", []):
                 nuevas.append({
-                    "id": s["id"],
+                    "id":       s["id"],
                     "distrito": d["district_id"],
                     "capacidad": s["capacidad_kw"],
                 })
         if nuevas:
             with subestaciones_lock:
                 subestaciones = nuevas
-            logger.info(f"Subestaciones actualizadas desde backend: {len(nuevas)} activas")
+            logger.info(f"Subestaciones actualizadas: {len(nuevas)}")
     except Exception as e:
-        logger.warning(f"No se pudo obtener subestaciones del backend: {e}")
+        logger.warning(f"No se pudo obtener subestaciones: {e}")
 
 
 def refresh_subestaciones_loop():
@@ -67,388 +224,195 @@ def refresh_subestaciones_loop():
         fetch_subestaciones()
         time.sleep(15)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("simulator")
 
-
-def get_hora_virtual():
-    """Ciclo de 24 horas virtuales cada 24 minutos reales"""
-    segundos = time.time() % (24 * 60)
-    return segundos / 60
-
-
-def calcular_consumo(capacidad, hora, distrito=None):
-    """Calcula consumo con variación horaria; respeta factor de redistribución si está activo"""
-    if distrito and distrito in simulator_state["redistribution_factors"]:
-        factor = simulator_state["redistribution_factors"][distrito]
-        factor += random.uniform(-0.03, 0.03)  # pequeña variación natural
-        factor = max(0.20, min(factor, 0.90))
-    elif 18 <= hora <= 21:
-        factor = random.uniform(0.88, 0.98)
-    elif 6 <= hora <= 9:
-        factor = random.uniform(0.70, 0.85)
-    else:
-        factor = random.uniform(0.30, 0.65)
-    return round(capacidad * factor, 2)
-
-
-def inyectar_sobrecarga(subestacion):
-    """Inyecta sobrecarga en una subestación (96-100% capacidad máxima)"""
-    return round(subestacion["capacidad"] * random.uniform(0.96, 1.00), 2)
-
-
-def enviar_metrica(sub, consumo):
-    """Envía métrica al backend"""
-    payload = {
-        "substation_id": sub["id"],
-        "district_id":   sub["distrito"],
-        "consumo_kw":    consumo,
-        "capacidad_kw":  sub["capacidad"],
-        "timestamp":     datetime.utcnow().isoformat(),
-    }
-    try:
-        resp = requests.post(
-            f"{BACKEND_URL}/api/metrics", 
-            json=payload, 
-            timeout=5
-        )
-        if resp.status_code != 200:
-            logger.warning(f"Status {resp.status_code} para {sub['id']}")
-        return True
-    except Exception as e:
-        logger.error(f"Error enviando datos de {sub['id']}: {e}")
-        return False
-
-
-def loop_simulador():
-    logger.info(f"Simulador iniciado. Enviando a {BACKEND_URL} cada {INTERVAL_MS}ms")
-    
-    while simulator_state["running"]:
-        hora = get_hora_virtual()
-        interval = INTERVAL_MS / simulator_state["burst_multiplier"]
-        
-        with subestaciones_lock:
-            current = list(subestaciones)
-        
-        for sub in current:
-            if sub["id"] in simulator_state["stopped_substations"]:
-                continue
-            
-            if sub["distrito"] in simulator_state["redistribution_factors"]:
-                consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
-            elif sub["distrito"] in simulator_state["overload_districts"]:
-                consumo = inyectar_sobrecarga(sub)
-                logger.info(f"[OVERLOAD] {sub['id']} ({sub['distrito']}): {consumo} kW")
-            else:
-                consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
-            
-            enviar_metrica(sub, consumo)
-        
-        time.sleep(interval / 1000)
-
-
-# ============================================================================
-# FASTAPI APP
-# ============================================================================
+# ── FastAPI ────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="EnergyGrid Simulator Control")
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint"""
+    hora   = get_hora_virtual()
+    minuto = minuto_en_ciclo()
     return {
-        "status": "healthy",
-        "simulator_running": simulator_state["running"],
-        "peak_hour_active": simulator_state["peak_hour_active"],
-        "overload_districts": list(simulator_state["overload_districts"]),
+        "status":              "healthy",
+        "simulator_running":   simulator_state["running"],
+        "peak_hour_active":    es_hora_pico_virtual(hora),
+        "hora_virtual":        round(hora, 2),
+        "minuto_en_ciclo":     round(minuto, 2),
+        "ciclo_total_min":     12,
+        "interval_ms":         INTERVAL_MS,
+        "overload_districts":  list(simulator_state["overload_districts"]),
         "stopped_substations": list(simulator_state["stopped_substations"]),
+        "auto_spike_sub":      simulator_state["auto_spike_sub"],
+        "auto_spike_segundos_restantes": max(
+            0, round(simulator_state["auto_spike_until"] - time.time())
+        ) if simulator_state["auto_spike_sub"] else 0,
+    }
+
+
+@app.get("/simulator/tiempo-virtual")
+async def tiempo_virtual():
+    hora   = get_hora_virtual()
+    minuto = minuto_en_ciclo()
+    return {
+        "minuto_real_en_ciclo":  round(minuto, 2),
+        "hora_virtual":          round(hora, 2),
+        "es_hora_pico":          es_hora_pico_virtual(hora),
+        "descripcion": (
+            "HORA PICO (alta demanda)" if es_hora_pico_virtual(hora)
+            else "Mañana (demanda media)" if 6 <= hora <= 9
+            else "Periodo normal (baja demanda)"
+        ),
+        "proximo_pico_en_seg": round(
+            ((11 - hora) % 24) * SEGUNDOS_POR_HORA_VIRTUAL
+        ) if not es_hora_pico_virtual(hora) else 0,
     }
 
 
 @app.post("/simulator/trigger-overload")
-async def trigger_overload(district: str = Query(..., description="Nombre del distrito")):
-    """
-    Fuerza sobrecarga (>95% capacidad) en un distrito específico
-    
-    Ejemplo: POST /simulator/trigger-overload?district=San Salvador
-    """
+async def trigger_overload(district: str = Query(...)):
     with subestaciones_lock:
-        distritos_validos = {sub["distrito"] for sub in subestaciones}
-    
+        distritos_validos = {s["distrito"] for s in subestaciones}
     if district not in distritos_validos:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Distrito no válido. Válidos: {list(distritos_validos)}"}
-        )
-    
+        return JSONResponse(status_code=400,
+            content={"error": f"Distrito no válido. Válidos: {list(distritos_validos)}"})
     simulator_state["overload_districts"].add(district)
-    logger.info(f"[TRIGGER] Sobrecarga activada para: {district}")
-    
-    return {
-        "event": "OVERLOAD_TRIGGERED",
-        "district": district,
-        "message": f"Sobrecarga inyectada en {district}. Consumo forzado a 96-100%"
-    }
+    logger.info(f"[TRIGGER] Sobrecarga activada: {district}")
+    return {"event": "OVERLOAD_TRIGGERED", "district": district,
+            "message": f"Sobrecarga inyectada en {district} (96-100%)"}
 
 
 @app.post("/simulator/stop-overload")
-async def stop_overload(district: str = Query(..., description="Nombre del distrito")):
-    """Detiene la sobrecarga en un distrito"""
+async def stop_overload(district: str = Query(...)):
     simulator_state["overload_districts"].discard(district)
-    logger.info(f"[STOP] Sobrecarga detenida para: {district}")
-    
-    return {
-        "event": "OVERLOAD_STOPPED",
-        "district": district,
-        "message": f"Sobrecarga detenida en {district}"
-    }
+    logger.info(f"[STOP] Sobrecarga detenida: {district}")
+    return {"event": "OVERLOAD_STOPPED", "district": district}
 
 
 @app.post("/simulator/trigger-peak-hour")
 async def trigger_peak_hour():
-    """
-    Activa 'hora pico' - aumenta frecuencia de datos (burst mode)
-    
-    Ejemplo: POST /simulator/trigger-peak-hour
-    """
     simulator_state["peak_hour_active"] = True
-    simulator_state["burst_multiplier"] = 3  # Envía 3x más rápido
-    
-    logger.info("[TRIGGER] Hora pico activada. Burst mode: 3x")
-    
-    return {
-        "event": "PEAK_HOUR_TRIGGERED",
-        "message": "Hora pico activada. Frecuencia de datos aumentada a 3x",
-        "burst_multiplier": simulator_state["burst_multiplier"]
-    }
+    simulator_state["burst_multiplier"] = 3
+    logger.info("[TRIGGER] Hora pico manual activada. Burst 3x")
+    return {"event": "PEAK_HOUR_TRIGGERED",
+            "message": "Hora pico manual activada (3x frecuencia)",
+            "burst_multiplier": 3}
 
 
 @app.post("/simulator/stop-peak-hour")
 async def stop_peak_hour():
-    """Detiene el modo de hora pico"""
     simulator_state["peak_hour_active"] = False
     simulator_state["burst_multiplier"] = 1
-    
-    logger.info("[STOP] Hora pico detenida")
-    
-    return {
-        "event": "PEAK_HOUR_STOPPED",
-        "message": "Hora pico detenida. Frecuencia normal",
-        "burst_multiplier": simulator_state["burst_multiplier"]
-    }
+    logger.info("[STOP] Hora pico manual detenida")
+    return {"event": "PEAK_HOUR_STOPPED", "burst_multiplier": 1}
 
 
 @app.post("/simulator/stop-substation")
-async def stop_substation(substation_id: str = Query(..., description="ID de subestación")):
-    """
-    Detiene una subestación (simula fallo/caída)
-    Deja de enviar datos de esa subestación
-    
-    Ejemplo: POST /simulator/stop-substation?substation_id=SSS001
-    """
+async def stop_substation(substation_id: str = Query(...)):
     with subestaciones_lock:
-        subestaciones_validas = {sub["id"] for sub in subestaciones}
-    
-    if substation_id not in subestaciones_validas:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Subestación no válida. Válidas: {list(subestaciones_validas)}"}
-        )
-    
+        validas = {s["id"] for s in subestaciones}
+    if substation_id not in validas:
+        return JSONResponse(status_code=400,
+            content={"error": f"Subestación no válida. Válidas: {list(validas)}"})
     simulator_state["stopped_substations"].add(substation_id)
     logger.info(f"[TRIGGER] Subestación detenida: {substation_id}")
-    
-    return {
-        "event": "SUBSTATION_STOPPED",
-        "substation_id": substation_id,
-        "message": f"Subestación {substation_id} detenida. Dejará de enviar datos"
-    }
+    return {"event": "SUBSTATION_STOPPED", "substation_id": substation_id}
 
 
 @app.post("/simulator/start-substation")
-async def start_substation(substation_id: str = Query(..., description="ID de subestación")):
-    """Reinicia una subestación detenida"""
+async def start_substation(substation_id: str = Query(...)):
     simulator_state["stopped_substations"].discard(substation_id)
     logger.info(f"[START] Subestación reiniciada: {substation_id}")
-    
-    return {
-        "event": "SUBSTATION_STARTED",
-        "substation_id": substation_id,
-        "message": f"Subestación {substation_id} reiniciada"
-    }
+    return {"event": "SUBSTATION_STARTED", "substation_id": substation_id}
 
 
 @app.post("/simulator/malicious-input")
-async def malicious_input(district: str = Query("San Salvador")):
-    """
-    Envía input malicioso con SQL injection payload
-    Prueba que el backend protege contra SQL injection
-    
-    Ejemplo: POST /simulator/malicious-input
-    """
-    malicious_district = "'; DROP TABLE consumo_temporal; --"
-    
-    logger.warning(f"[SECURITY TEST] Enviando SQL injection payload")
-    
+async def malicious_input():
     payload = {
         "substation_id": "TEST001",
-        "district_id": malicious_district,
-        "consumo_kw": 1000,
-        "capacidad_kw": 5000,
-        "timestamp": datetime.utcnow().isoformat(),
+        "district_id":   "'; DROP TABLE consumo_temporal; --",
+        "consumo_kw":    1000,
+        "capacidad_kw":  5000,
+        "timestamp":     datetime.utcnow().isoformat(),
     }
-    
+    logger.warning("[SECURITY TEST] Enviando SQL injection payload")
     try:
-        resp = requests.post(
-            f"{BACKEND_URL}/api/metrics",
-            json=payload,
-            timeout=5
-        )
-        
-        return {
-            "event": "MALICIOUS_INPUT_SENT",
-            "payload_sent": payload,
-            "backend_response_code": resp.status_code,
-            "backend_response": resp.text[:200],
-            "message": "SQL injection payload enviado. Backend debe rechazarlo."
-        }
+        resp = requests.post(f"{BACKEND_URL}/api/metrics", json=payload, timeout=5)
+        return {"event": "MALICIOUS_INPUT_SENT", "payload_sent": payload,
+                "backend_response_code": resp.status_code,
+                "backend_response": resp.text[:200]}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "No se pudo enviar el payload",
-                "details": str(e)
-            }
-        )
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.post("/simulator/invalid-timestamp")
-async def invalid_timestamp(offset_days: int = Query(1)):
-    """
-    Envía timestamp inválido (futuro o pasado)
-    Prueba validación de timestamps en el backend
-    
-    Ejemplo: POST /simulator/invalid-timestamp?offset_days=1
-    """
-    offset = timedelta(days=offset_days)
-    invalid_ts = datetime.utcnow() - offset
-    
-    logger.warning(f"[TEST] Enviando timestamp inválido: {invalid_ts.isoformat()}")
-    
+async def invalid_timestamp(offset_days: int = Query(2)):
+    invalid_ts = datetime.utcnow() - timedelta(days=offset_days)
     payload = {
         "substation_id": "TEST002",
-        "district_id": "San Salvador",
-        "consumo_kw": 1000,
-        "capacidad_kw": 5000,
-        "timestamp": invalid_ts.isoformat(),
+        "district_id":   "San Salvador",
+        "consumo_kw":    1000,
+        "capacidad_kw":  5000,
+        "timestamp":     invalid_ts.isoformat(),
     }
-    
+    logger.warning(f"[TEST] Timestamp inválido: {invalid_ts.isoformat()}")
     try:
-        resp = requests.post(
-            f"{BACKEND_URL}/api/metrics",
-            json=payload,
-            timeout=5
-        )
-        
-        return {
-            "event": "INVALID_TIMESTAMP_SENT",
-            "payload_sent": payload,
-            "backend_response_code": resp.status_code,
-            "backend_response": resp.text[:200],
-            "message": f"Timestamp inválido ({offset_days} días) enviado. Backend debe rechazarlo con 422."
-        }
+        resp = requests.post(f"{BACKEND_URL}/api/metrics", json=payload, timeout=5)
+        return {"event": "INVALID_TIMESTAMP_SENT", "payload_sent": payload,
+                "backend_response_code": resp.status_code,
+                "backend_response": resp.text[:200]}
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "No se pudo enviar el payload",
-                "details": str(e)
-            }
-        )
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.post("/simulator/set-redistribution")
 async def set_redistribution(
-    district: str = Query(..., description="Distrito a reducir"),
-    to: str = Query(None, description="Distrito destino que recibirá la carga (opcional)"),
-    factor: float = Query(0.55, description="Factor de consumo objetivo (0.0-0.9)"),
-    increase_factor: float = Query(0.85, description="Factor de aumento para el distrito destino"),
+    district: str = Query(...),
+    to: str = Query(None),
+    factor: float = Query(0.55),
+    increase_factor: float = Query(0.85),
 ):
-    """
-    Fuerza un factor de consumo bajo en un distrito (redistribución activa).
-    El distrito se saca automáticamente de overload_districts.
-    Opcionalmente aumenta el consumo del distrito destino para simular balanceo.
-    """
     with subestaciones_lock:
-        distritos_validos = {sub["distrito"] for sub in subestaciones}
+        distritos_validos = {s["distrito"] for s in subestaciones}
     if district not in distritos_validos:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Distrito no válido. Válidos: {list(distritos_validos)}"},
-        )
-
+        return JSONResponse(status_code=400,
+            content={"error": f"Distrito no válido. Válidos: {list(distritos_validos)}"})
     simulator_state["overload_districts"].discard(district)
-    logger.info(f"[REDISTRIBUCION] {district} removido de overload_districts")
-
     factor = max(0.20, min(factor, 0.90))
     simulator_state["redistribution_factors"][district] = factor
-    logger.info(f"[REDISTRIBUCION] Factor {factor:.0%} aplicado a: {district}")
-
     if to and to in distritos_validos and to != district:
         simulator_state["redistribution_factors"][to] = max(0.50, min(increase_factor, 0.95))
         simulator_state["redistribution_pairs"][district] = to
-        logger.info(f"[REDISTRIBUCION] Factor {increase_factor:.0%} aplicado a destino: {to} (recibe carga)")
-
-    return {
-        "event": "REDISTRIBUTION_SET",
-        "district": district,
-        "factor": factor,
-        "to": to,
-        "message": f"Consumo de {district} limitado al {factor:.0%}. {to} incrementado al {increase_factor:.0%}." if to else f"Consumo de {district} limitado al {factor:.0%}",
-    }
+    return {"event": "REDISTRIBUTION_SET", "district": district,
+            "factor": factor, "to": to}
 
 
 @app.post("/simulator/clear-redistribution")
 async def clear_redistribution(district: str = Query(...)):
-    """Quita la redistribución activa de un distrito y su destino, volviendo al ciclo normal."""
     target = simulator_state["redistribution_pairs"].pop(district, None)
     if target:
         simulator_state["redistribution_factors"].pop(target, None)
-        logger.info(f"[REDISTRIBUCION] Redistribución eliminada para destino: {target}")
     simulator_state["redistribution_factors"].pop(district, None)
-    logger.info(f"[REDISTRIBUCION] Redistribución eliminada para: {district}")
-    return {
-        "event": "REDISTRIBUTION_CLEARED",
-        "district": district,
-        "cleared_target": target,
-    }
+    return {"event": "REDISTRIBUTION_CLEARED", "district": district,
+            "cleared_target": target}
 
 
 @app.post("/simulator/reset")
 async def reset_simulator():
-    """Resetea el simulador al estado normal"""
     simulator_state["overload_districts"].clear()
     simulator_state["stopped_substations"].clear()
-    simulator_state["peak_hour_active"] = False
-    simulator_state["burst_multiplier"] = 1
+    simulator_state["peak_hour_active"]   = False
+    simulator_state["burst_multiplier"]   = 1
     simulator_state["redistribution_factors"].clear()
     simulator_state["redistribution_pairs"].clear()
-    
-    logger.info("[RESET] Simulador resetado a estado normal")
-    
-    return {
-        "event": "SIMULATOR_RESET",
-        "message": "Simulador resetado a estado normal"
-    }
+    simulator_state["auto_spike_sub"]     = None
+    simulator_state["auto_spike_until"]   = 0
+    logger.info("[RESET] Simulador resetado")
+    return {"event": "SIMULATOR_RESET", "message": "Simulador resetado a estado normal"}
 
 
-# ============================================================================
-# INICIO DEL SIMULADOR
-# ============================================================================
+# ── Arranque ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     for attempt in range(10):
@@ -458,12 +422,11 @@ if __name__ == "__main__":
         if count > 3:
             break
         time.sleep(3)
-    
-    refresh_thread = threading.Thread(target=refresh_subestaciones_loop, daemon=True)
-    refresh_thread.start()
-    
-    simulator_thread = threading.Thread(target=loop_simulador, daemon=True)
-    simulator_thread.start()
-    
-    logger.info("Iniciando servidor FastAPI en puerto 8001")
+
+    threading.Thread(target=refresh_subestaciones_loop, daemon=True).start()
+    threading.Thread(target=loop_simulador,             daemon=True).start()
+    threading.Thread(target=loop_auto_spike,            daemon=True).start()
+
+    logger.info(f"Servidor iniciado en :8001 | Intervalo={INTERVAL_MS}ms"
+                f" | Ciclo virtual=12min | Auto-spike cada {AUTO_SPIKE_INTERVAL_SEG}s")
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

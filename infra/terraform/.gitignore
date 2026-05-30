@@ -1,0 +1,7 @@
+# Archivos sensibles — nunca subir
+terraform.tfvars
+*.tfstate
+*.tfstate.backup
+
+# Directorio generado por terraform init
+.terraform/
