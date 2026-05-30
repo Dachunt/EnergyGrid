@@ -34,30 +34,38 @@ jobs:
     needs: build-and-push
     steps:
       - uses: actions/checkout@v4
-      - name: Copy docker-compose.yml to EC2
-        uses: appleboy/scp-action@v1
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: 98.91.49.34
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.yml"
-          target: "/opt/energygrid/"
-      - name: SSH and restart services
-        uses: appleboy/ssh-action@v1
-        with:
-          host: 98.91.49.34
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -e
-            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 107901884265.dkr.ecr.us-east-1.amazonaws.com
-            cd /opt/energygrid
-            docker compose pull
-            docker compose up -d --remove-orphans
-            for i in $(seq 1 30); do
-              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-                echo "Backend healthy!"
-                break
-              fi
-              sleep 5
-            done
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Inject SSH key via EC2 Instance Connect
+        run: |
+          ssh-keygen -t rsa -b 2048 -f /tmp/deploy_key -N "" -q
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,values=energygrid-prod-ec2" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+          AZ=$(aws ec2 describe-instances \
+            --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[0].Instances[0].Placement.AvailabilityZone" \
+            --output text)
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id "$INSTANCE_ID" \
+            --availability-zone "$AZ" \
+            --instance-os-user ec2-user \
+            --ssh-public-key file:///tmp/deploy_key.pub
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+
+      - name: Upload files and restart services
+        run: |
+          scp -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            docker-compose.yml ec2-user@98.91.49.34:/opt/energygrid/
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            ec2-user@98.91.49.34 \
+            bash /opt/energygrid/start.sh
