@@ -12,3 +12,4 @@ psutil
 python-jose[cryptography]
 bcrypt
 python-multipart
+redis[hiredis]
