@@ -232,16 +232,28 @@ async def get_alerts(request: Request, resolved: bool = False, history: bool = F
 
 
 @router.post("/districts/{district_id}/redistribute")
-async def redistribute_load(district_id: str, to: str, request: Request, factor: float = 0.55):
+async def redistribute_load(
+    district_id: str,
+    to: str,
+    request: Request,
+    factor: float = 0.55,
+    increase_factor: float = 0.85,
+):
     """
     Aplica redistribución de carga desde district_id hacia 'to'.
-    Llama al simulador para que reduzca el consumo del distrito origen.
+    Llama al simulador para que reduzca el consumo del distrito origen
+    y aumente el del distrito destino.
     """
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(
                 f"{SIMULATOR_URL}/simulator/set-redistribution",
-                params={"district": district_id, "factor": factor},
+                params={
+                    "district": district_id,
+                    "to": to,
+                    "factor": factor,
+                    "increase_factor": increase_factor,
+                },
             )
             resp.raise_for_status()
     except Exception as exc:

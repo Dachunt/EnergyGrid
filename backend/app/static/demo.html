@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EnergyGrid - Panel de Demostración</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --border: #475569;
+    --text: #f1f5f9;
+    --text2: #94a3b8;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #06b6d4;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+
+  /* Header */
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1rem 0; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem;
+    flex-wrap: wrap; gap: 0.75rem;
+  }
+  .header h1 { font-size: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }
+  .header h1 small { font-size: 0.85rem; color: var(--text2); font-weight: 400; }
+  .header-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .status-badge {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+  }
+  .status-badge.online { background: rgba(34,197,94,0.15); color: var(--success); }
+  .status-badge.offline { background: rgba(239,68,68,0.15); color: var(--danger); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .status-dot.offline { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+  .quick-links { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .quick-links a {
+    color: var(--text2); text-decoration: none; font-size: 0.8rem;
+    padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .quick-links a:hover { color: var(--primary); border-color: var(--primary); background: rgba(59,130,246,0.1); }
+
+  /* Grid */
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 1rem;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.25rem; transition: border-color 0.2s;
+    display: flex; flex-direction: column;
+  }
+  .card:hover { border-color: var(--primary); }
+  .card-header {
+    display: flex; align-items: center; gap: 0.6rem;
+    margin-bottom: 0.75rem; padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-header h2 { font-size: 1.1rem; font-weight: 600; }
+  .card-header .badge {
+    font-size: 0.65rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+    font-weight: 600; text-transform: uppercase;
+  }
+  .badge-demo { background: rgba(59,130,246,0.2); color: var(--primary); }
+  .badge-info { background: rgba(6,182,212,0.2); color: var(--info); }
+  .badge-warning { background: rgba(245,158,11,0.2); color: var(--warning); }
+  .badge-danger { background: rgba(239,68,68,0.2); color: var(--danger); }
+  .badge-success { background: rgba(34,197,94,0.2); color: var(--success); }
+
+  .card-desc {
+    color: var(--text2); font-size: 0.85rem; line-height: 1.5;
+    margin-bottom: 1rem; flex-grow: 1;
+  }
+  .card-desc code {
+    background: rgba(0,0,0,0.3); padding: 0.1rem 0.3rem; border-radius: 4px;
+    font-size: 0.8rem; color: var(--info);
+  }
+
+  .btn-group { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+  .btn {
+    padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 0.8rem;
+    font-weight: 500; cursor: pointer; transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--primary); border-color: var(--primary); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-primary { background: var(--primary); border-color: var(--primary); }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-success { background: rgba(34,197,94,0.2); border-color: var(--success); color: var(--success); }
+  .btn-success:hover { background: var(--success); color: #fff; }
+  .btn-warning { background: rgba(245,158,11,0.2); border-color: var(--warning); color: var(--warning); }
+  .btn-warning:hover { background: var(--warning); color: #fff; }
+  .btn-danger { background: rgba(239,68,68,0.2); border-color: var(--danger); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-info { background: rgba(6,182,212,0.2); border-color: var(--info); color: var(--info); }
+  .btn-info:hover { background: var(--info); color: #fff; }
+  .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+  .btn-lg { padding: 0.7rem 1.5rem; font-size: 0.95rem; }
+  .btn-link {
+    background: transparent; border: none; color: var(--primary);
+    text-decoration: underline; padding: 0;
+  }
+  .btn-link:hover { color: var(--primary-hover); background: transparent; }
+
+  /* Result box */
+  .result {
+    margin-top: 0.5rem; padding: 0.6rem 0.8rem;
+    border-radius: 8px; font-size: 0.78rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+    max-height: 150px; overflow: auto; white-space: pre-wrap;
+    word-break: break-all; display: none;
+  }
+  .result.show { display: block; }
+  .result.success { border-color: var(--success); color: var(--success); }
+  .result.error { border-color: var(--danger); color: var(--danger); }
+  .result.info { border-color: var(--info); color: var(--info); }
+
+  /* Command copy */
+  .cmd-box {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.5rem 0.8rem; margin-top: 0.5rem;
+  }
+  .cmd-box code {
+    flex-grow: 1; font-size: 0.78rem; color: var(--info);
+    font-family: 'SF Mono', 'Fira Code', monospace; overflow-x: auto;
+  }
+  .cmd-box .btn { flex-shrink: 0; }
+
+  /* Link section */
+  .links-section {
+    margin-top: 2rem; padding: 1.25rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .links-section h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+  .links-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+  }
+  .link-card {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.75rem; border-radius: 8px;
+    border: 1px solid var(--border); text-decoration: none;
+    color: var(--text); transition: all 0.2s;
+  }
+  .link-card:hover { border-color: var(--primary); background: rgba(59,130,246,0.05); }
+  .link-card .link-icon { font-size: 1.5rem; }
+  .link-card .link-info { flex-grow: 1; }
+  .link-card .link-title { font-weight: 600; font-size: 0.9rem; }
+  .link-card .link-desc { color: var(--text2); font-size: 0.78rem; }
+
+  /* Loading spinner */
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--text2); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 0.3rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .header { flex-direction: column; align-items: flex-start; }
+    .header-controls { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>⚡ EnergyGrid <small>Panel de Demostración</small></h1>
+    <div class="header-controls" id="headerControls">
+      <div class="status-badge offline" id="connBadge">
+        <span class="status-dot offline" id="connDot"></span>
+        <span id="connLabel">Verificando...</span>
+      </div>
+      <div class="quick-links">
+        <a href="/" target="_blank">🏠 Dashboard</a>
+        <a href="/static/dashboard_actual.html" target="_blank">📊 Monitoreo</a>
+        <a href="/docs" target="_blank">📖 API Docs</a>
+        <a href="/health" target="_blank">❤️ Health</a>
+        <a href="http://localhost:8081" target="_blank">📈 Munin</a>
+        <a href="http://localhost:3000" target="_blank">🗺️ Frontend</a>
+      </div>
+    </div>
+  </div>
+
+  <p style="color:var(--text2);margin-bottom:1.5rem;font-size:0.9rem;">
+    Panel interactivo para ejecutar y explicar cada demo de la guía de implementación.
+    Cada sección corresponde a una demo específica. Presiona los botones para ejecutar acciones
+    y observa las respuestas en tiempo real.
+  </p>
+
+  <div class="grid">
+
+    <!-- ========== SISTEMA ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">⚡</span>
+        <h2>Estado del Sistema</h2>
+        <span class="badge badge-info">Sistema</span>
+      </div>
+      <div class="card-desc">
+        Verifica que todos los servicios estén funcionando correctamente.
+        El backend, simulador, base de datos y Redis deben responder.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-success" onclick="checkHealth()">❤️ Health Check</button>
+        <button class="btn btn-primary" onclick="startMonitoring()">▶ Iniciar Monitoreo</button>
+        <button class="btn btn-danger" onclick="stopMonitoring()">⏹ Detener Monitoreo</button>
+      </div>
+      <div class="result" id="resultHealth"></div>
+    </div>
+
+    <!-- ========== DEMO 2: SOBRECARGA ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">🔥</span>
+        <h2>Sobrecarga &gt; 95%</h2>
+        <span class="badge badge-danger">Demo 2</span>
+      </div>
+      <div class="card-desc">
+        Simula una sobrecarga crítica en un distrito. El backend detecta el consumo ≥95%,
+        crea una alerta <code>SOBRECARGA_CRITICA</code> y sugiere redistribución de carga
+        hacia distritos con menos del 75% de uso.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-warning" onclick="demoAction('trigger-overload?district=San%20Salvador', 'resultOverload')">⚡ Sobrecargar San Salvador</button>
+        <button class="btn btn-warning" onclick="demoAction('trigger-overload?district=Soyapango', 'resultOverload')">⚡ Sobrecargar Soyapango</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-success" onclick="demoAction('stop-overload?district=San%20Salvador', 'resultOverload')">✅ Detener Sobrecarga (SS)</button>
+        <button class="btn btn-success" onclick="demoAction('stop-overload?district=Soyapango', 'resultOverload')">✅ Detener Sobrecarga (Soyapango)</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-info btn-sm" onclick="demoAction('trigger-overload?district=Antiguo%20Cuscatlan', 'resultOverload')">Sobrecargar Antiguo Cuscatlán</button>
+        <button class="btn btn-info btn-sm" onclick="demoAction('stop-overload?district=Antiguo%20Cuscatlan', 'resultOverload')">Detener (AC)</button>
+      </div>
+      <div class="result" id="resultOverload"></div>
+    </div>
+
+    <!-- ========== DEMO 3: HORA PICO Y ESCALADO ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">⚙️</span>
+        <h2>Hora Pico y Escalado</h2>
+        <span class="badge badge-warning">Demo 3</span>
+      </div>
+      <div class="card-desc">
+        Activa el modo hora pico en el simulador (burst de datos 3x).
+        Luego escala el backend a 2 instancias con Docker. El frontend
+        <strong>no se desconecta</strong> gracias a Redis pub/sub y Nginx.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-warning" onclick="demoAction('trigger-peak-hour', 'resultPeak')">🚀 Activar Hora Pico</button>
+        <button class="btn btn-success" onclick="demoAction('stop-peak-hour', 'resultPeak')">⏹ Desactivar Hora Pico</button>
+      </div>
+      <div class="cmd-box">
+        <code>docker compose up --scale energygrid-backend=2 -d</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="cmd-box">
+        <code>docker compose up -d</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div style="margin-top:0.4rem;font-size:0.75rem;color:var(--text2);">
+        <strong>1.</strong> Activa hora pico → <strong>2.</strong> Escala en terminal → 
+        <strong>3.</strong> Verifica 2 instancias con <code style="background:rgba(0,0,0,0.3);padding:0.1rem 0.3rem;border-radius:4px;">docker ps</code> →
+        <strong>4.</strong> El frontend sigue funcionando →
+        <strong>5.</strong> Desactiva hora pico →
+        <strong>6.</strong> Vuelve a 1 backend
+      </div>
+      <div class="result" id="resultPeak"></div>
+    </div>
+
+    <!-- ========== DEMO 4: CAÍDA DE SUBESTACIÓN ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">🏗️</span>
+        <h2>Caída de Subestación</h2>
+        <span class="badge badge-warning">Demo 4</span>
+      </div>
+      <div class="card-desc">
+        Simula la desconexión de una subestación. El watchdog del backend
+        detecta que no recibe datos por 15 segundos, crea una alerta
+        <code>SUBESTACION_DESCONECTADA</code> y sugiere redistribución.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-danger" onclick="demoAction('stop-substation?substation_id=SSS001', 'resultSubstation')">⛔ Detener SSS001 (Centro)</button>
+        <button class="btn btn-danger" onclick="demoAction('stop-substation?substation_id=SSS002', 'resultSubstation')">⛔ Detener SSS002 (Norte)</button>
+        <button class="btn btn-danger" onclick="demoAction('stop-substation?substation_id=SAN001', 'resultSubstation')">⛔ Detener SAN001 (Antiguo)</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-success" onclick="demoAction('start-substation?substation_id=SSS001', 'resultSubstation')">✅ Reactivar SSS001</button>
+        <button class="btn btn-success" onclick="demoAction('start-substation?substation_id=SSS002', 'resultSubstation')">✅ Reactivar SSS002</button>
+        <button class="btn btn-success" onclick="demoAction('start-substation?substation_id=SAN001', 'resultSubstation')">✅ Reactivar SAN001</button>
+      </div>
+      <div style="margin-top:0.4rem;font-size:0.78rem;color:var(--warning);">
+        ⏱️ Espera ~15 segundos después de detener para que el watchdog detecte la caída.
+      </div>
+      <div class="result" id="resultSubstation"></div>
+    </div>
+
+    <!-- ========== DEMO 5: TIMESTAMPS INVÁLIDOS ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">🕐</span>
+        <h2>Timestamps Inválidos</h2>
+        <span class="badge badge-info">Demo 5</span>
+      </div>
+      <div class="card-desc">
+        Envía datos con timestamp fuera del rango permitido (&gt;24h en el futuro o pasado).
+        El backend rechaza la petición con <strong>HTTP 422</strong> y registra el evento
+        <code>TIMESTAMP_INVALIDO</code> en los logs.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-warning" onclick="demoAction('invalid-timestamp?offset_days=2', 'resultTimestamp')">🕐 Enviar timestamp inválido (+2 días)</button>
+        <button class="btn btn-warning" onclick="demoAction('invalid-timestamp?offset_days=-2', 'resultTimestamp')">🕐 Enviar timestamp inválido (-2 días)</button>
+      </div>
+      <div class="cmd-box">
+        <code>docker compose logs energygrid-backend | grep TIMESTAMP_INVALIDO</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="result" id="resultTimestamp"></div>
+    </div>
+
+    <!-- ========== DEMO 6: SQL INJECTION ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">🛡️</span>
+        <h2>SQL Injection</h2>
+        <span class="badge badge-info">Demo 6</span>
+      </div>
+      <div class="card-desc">
+        Envía un payload malicioso con <code style="color:var(--danger);">'; DROP TABLE consumo_temporal; --</code>
+        El backend detecta el patrón sospechoso con regex, marca la anomalía,
+        usa queries parametrizadas que lo tratan como string literal inofensivo,
+        y registra <code>sospecha_sql</code> en los logs.
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-danger" onclick="demoAction('malicious-input', 'resultSql')">🛡️ Enviar SQL Injection</button>
+      </div>
+      <div class="cmd-box">
+        <code>docker compose logs energygrid-backend | grep sospecha_sql</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="result" id="resultSql"></div>
+    </div>
+
+    <!-- ========== DEMO 7: MONITOREO ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">📊</span>
+        <h2>Dashboard de Monitoreo</h2>
+        <span class="badge badge-info">Demo 7</span>
+      </div>
+      <div class="card-desc">
+        Muestra las 3 herramientas de monitoreo integradas:
+        <strong>Munin</strong> (métricas del sistema),
+        <strong>Pingdom</strong> (disponibilidad de endpoints) y
+        <strong>Slow Query Log</strong> (pg_stat_statements).
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="window.open('/static/dashboard_actual.html','_blank')">📊 Dashboard Monitoreo</button>
+        <button class="btn btn-primary" onclick="window.open('http://localhost:8081','_blank')">📈 Munin Gráficos</button>
+        <button class="btn btn-primary" onclick="window.open('/docs','_blank')">📖 Swagger API</button>
+      </div>
+      <div style="margin-top:0.75rem;font-size:0.78rem;color:var(--text2);">
+        <strong>Endpoints de la API de monitoreo:</strong>
+      </div>
+      <div class="cmd-box">
+        <code>curl http://localhost:8000/api/monitoring/health</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋</button>
+      </div>
+      <div class="cmd-box">
+        <code>curl http://localhost:8000/api/monitoring/dashboard</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋</button>
+      </div>
+      <div class="cmd-box">
+        <code>curl http://localhost:8000/api/monitoring/alerts</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋</button>
+      </div>
+      <div class="cmd-box">
+        <code>curl http://localhost:8000/api/monitoring/pingdom/status</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋</button>
+      </div>
+      <div class="cmd-box">
+        <code>curl http://localhost:8000/api/monitoring/queries/slow</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋</button>
+      </div>
+    </div>
+
+    <!-- ========== DEMO 8: PERSISTENCIA ========== -->
+    <div class="card">
+      <div class="card-header">
+        <span style="font-size:1.3rem;">💾</span>
+        <h2>Persistencia y Tolerancia a Fallos</h2>
+        <span class="badge badge-info">Demo 8</span>
+      </div>
+      <div class="card-desc">
+        Demuestra que el sistema mantiene los datos ante fallos. Si la BD cae,
+        el backend encola los datos en memoria y los reinserta al recuperarse.
+        Los datos persisten incluso después de reiniciar contenedores.
+      </div>
+
+      <div style="font-size:0.85rem;color:var(--text);margin-bottom:0.5rem;font-weight:600;">Caída de BD con simulador activo:</div>
+      <div class="cmd-box">
+        <code>docker compose stop energygrid-db</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="cmd-box" style="margin-top:0.3rem;">
+        <code>docker compose logs energygrid-backend | grep queue</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="cmd-box" style="margin-top:0.3rem;">
+        <code>docker compose start energygrid-db</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+
+      <div style="margin-top:0.75rem;font-size:0.85rem;color:var(--text);margin-bottom:0.5rem;font-weight:600;">Persistencia de datos históricos:</div>
+      <div class="cmd-box">
+        <code>docker compose down</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="cmd-box" style="margin-top:0.3rem;">
+        <code>MSYS2_ARG_CONV_EXCL="*" docker compose up -d</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div class="cmd-box" style="margin-top:0.3rem;">
+        <code>curl http://localhost:8000/api/districts</code>
+        <button class="btn btn-sm btn-primary" onclick="copyCmd(this)">📋 Copiar</button>
+      </div>
+      <div style="margin-top:0.5rem;font-size:0.78rem;color:var(--warning);">
+        ⚠️ Los datos históricos persisten porque PostgreSQL usa volúmenes Docker.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ========== ENLACES ÚTILES ========== -->
+  <div class="links-section">
+    <h2>🔗 Enlaces Útiles para la Demo</h2>
+    <div class="links-grid">
+      <a href="http://localhost:3000" target="_blank" class="link-card">
+        <span class="link-icon">🗺️</span>
+        <div class="link-info">
+          <div class="link-title">Frontend Principal</div>
+          <div class="link-desc">Mapa interactivo con distritos y alertas en tiempo real</div>
+        </div>
+      </a>
+      <a href="/" target="_blank" class="link-card">
+        <span class="link-icon">📊</span>
+        <div class="link-info">
+          <div class="link-title">Dashboard General</div>
+          <div class="link-desc">Resumen de consumo, capacidad y estado del sistema</div>
+        </div>
+      </a>
+      <a href="/static/dashboard_actual.html" target="_blank" class="link-card">
+        <span class="link-icon">📈</span>
+        <div class="link-info">
+          <div class="link-title">Dashboard de Monitoreo</div>
+          <div class="link-desc">Munin + Pingdom + Slow Query Log integrados</div>
+        </div>
+      </a>
+      <a href="/docs" target="_blank" class="link-card">
+        <span class="link-icon">📖</span>
+        <div class="link-info">
+          <div class="link-title">Swagger API</div>
+          <div class="link-desc">Documentación interactiva de la API REST</div>
+        </div>
+      </a>
+      <a href="/health" target="_blank" class="link-card">
+        <span class="link-icon">❤️</span>
+        <div class="link-info">
+          <div class="link-title">Health Check</div>
+          <div class="link-desc">Endpoint de verificación de estado</div>
+        </div>
+      </a>
+      <a href="http://localhost:8081" target="_blank" class="link-card">
+        <span class="link-icon">📉</span>
+        <div class="link-info">
+          <div class="link-title">Munin Master</div>
+          <div class="link-desc">Gráficos históricos de CPU, memoria, disco, red</div>
+        </div>
+      </a>
+      <a href="http://localhost:8001/docs" target="_blank" class="link-card">
+        <span class="link-icon">⚙️</span>
+        <div class="link-info">
+          <div class="link-title">Simulador API</div>
+          <div class="link-desc">Swagger del simulador de telemetría</div>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center;padding:2rem 0 1rem;color:var(--text2);font-size:0.8rem;">
+    EnergyGrid — Sistema de Monitoreo de Consumo Eléctrico
+  </div>
+
+</div>
+
+<script>
+const API = '/api/demo/simulator';
+
+async function checkHealth() {
+  const el = document.getElementById('resultHealth');
+  el.className = 'result show info';
+  el.innerHTML = '<span class="spinner"></span> Verificando...';
+
+  try {
+    const [healthR, statusR, monitoringR] = await Promise.allSettled([
+      fetch('/health').then(r => r.json()),
+      fetch('/api/monitoring/status').then(r => r.json()).catch(() => ({monitoring_active: 'unknown'})),
+      fetch(`${API}/../health`).then(r => r.json()).catch(() => ({})),
+    ]);
+
+    const health = healthR.status === 'fulfilled' ? healthR.value : {error: 'no response'};
+    const status = statusR.status === 'fulfilled' ? statusR.value : {error: 'no response'};
+    const monitoringActive = status.monitoring_active !== undefined ? status.monitoring_active : 'N/A';
+
+    const lines = [
+      `✅ Backend: ${health.status === 'ok' ? 'OK' : 'ERROR'} (${health.status || 'unknown'})`,
+      `📊 Monitoreo: ${monitoringActive ? 'Activo' : 'Inactivo'}`,
+      `📈 Datos Munin: ${status.munin_metrics_count || 0} registros`,
+      `🔍 Checks Pingdom: ${status.pingdom_checks_count || 0} registros`,
+      `🗄️ Queries BD: ${status.database_queries_logged || 0} registros`,
+    ];
+
+    el.className = 'result show success';
+    el.textContent = lines.join('\n');
+  } catch (e) {
+    el.className = 'result show error';
+    el.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function demoAction(path, resultId) {
+  const el = document.getElementById(resultId);
+  el.className = 'result show info';
+  el.innerHTML = '<span class="spinner"></span> Ejecutando...';
+
+  try {
+    const resp = await fetch(`${API}/${path}`, { method: 'POST' });
+    const data = await resp.json();
+
+    const statusOk = resp.ok && (data.simulator_status === 'ok' || data.status_code >= 200 && data.status_code < 300);
+    el.className = `result show ${statusOk ? 'success' : 'error'}`;
+
+    const responseStr = data.response
+      ? JSON.stringify(data.response, null, 2)
+      : JSON.stringify(data, null, 2);
+
+    const statusCode = data.status_code || resp.status;
+    const lines = [`Status: ${statusCode} ${statusOk ? '✅' : '❌'}`, responseStr];
+    el.textContent = lines.join('\n');
+  } catch (e) {
+    el.className = 'result show error';
+    el.textContent = `Error de conexión: ${e.message}`;
+  }
+}
+
+async function startMonitoring() {
+  const el = document.getElementById('resultHealth');
+  el.className = 'result show info';
+  el.innerHTML = '<span class="spinner"></span> Iniciando monitoreo...';
+  try {
+    const resp = await fetch('/api/monitoring/start', { method: 'POST' });
+    const data = await resp.json();
+    el.className = `result show ${resp.ok ? 'success' : 'error'}`;
+    el.textContent = JSON.stringify(data, null, 2);
+  } catch (e) {
+    el.className = 'result show error';
+    el.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function stopMonitoring() {
+  const el = document.getElementById('resultHealth');
+  el.className = 'result show info';
+  el.innerHTML = '<span class="spinner"></span> Deteniendo monitoreo...';
+  try {
+    const resp = await fetch('/api/monitoring/stop', { method: 'POST' });
+    const data = await resp.json();
+    el.className = `result show ${resp.ok ? 'success' : 'error'}`;
+    el.textContent = JSON.stringify(data, null, 2);
+  } catch (e) {
+    el.className = 'result show error';
+    el.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function checkConnection() {
+  const badge = document.getElementById('connBadge');
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  try {
+    const resp = await fetch('/health');
+    const ok = resp.ok;
+    badge.className = `status-badge ${ok ? 'online' : 'offline'}`;
+    dot.className = `status-dot ${ok ? 'online' : 'offline'}`;
+    label.textContent = ok ? 'Conectado' : 'Error';
+  } catch {
+    badge.className = 'status-badge offline';
+    dot.className = 'status-dot offline';
+    label.textContent = 'Desconectado';
+  }
+}
+
+function copyCmd(btn) {
+  const code = btn.parentElement.querySelector('code');
+  if (!code) return;
+  navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copiado';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  }).catch(() => {
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+}
+
+checkConnection();
+setInterval(checkConnection, 10000);
+</script>
+
+</body>
+</html>

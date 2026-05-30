@@ -35,6 +35,7 @@ simulator_state = {
     "stopped_substations": set(),
     "burst_multiplier": 1,
     "redistribution_factors": {},
+    "redistribution_pairs": {},  # source -> target
 }
 
 
@@ -95,8 +96,8 @@ def calcular_consumo(capacidad, hora, distrito=None):
 
 
 def inyectar_sobrecarga(subestacion):
-    """Inyecta sobrecarga en una subestación (96-105% capacidad)"""
-    return round(subestacion["capacidad"] * random.uniform(0.96, 1.05), 2)
+    """Inyecta sobrecarga en una subestación (96-100% capacidad máxima)"""
+    return round(subestacion["capacidad"] * random.uniform(0.96, 1.00), 2)
 
 
 def enviar_metrica(sub, consumo):
@@ -136,7 +137,9 @@ def loop_simulador():
             if sub["id"] in simulator_state["stopped_substations"]:
                 continue
             
-            if sub["distrito"] in simulator_state["overload_districts"]:
+            if sub["distrito"] in simulator_state["redistribution_factors"]:
+                consumo = calcular_consumo(sub["capacidad"], hora, sub["distrito"])
+            elif sub["distrito"] in simulator_state["overload_districts"]:
                 consumo = inyectar_sobrecarga(sub)
                 logger.info(f"[OVERLOAD] {sub['id']} ({sub['distrito']}): {consumo} kW")
             else:
@@ -188,7 +191,7 @@ async def trigger_overload(district: str = Query(..., description="Nombre del di
     return {
         "event": "OVERLOAD_TRIGGERED",
         "district": district,
-        "message": f"Sobrecarga inyectada en {district}. Consumo forzado a 96-105%"
+        "message": f"Sobrecarga inyectada en {district}. Consumo forzado a 96-100%"
     }
 
 
@@ -371,11 +374,14 @@ async def invalid_timestamp(offset_days: int = Query(1)):
 @app.post("/simulator/set-redistribution")
 async def set_redistribution(
     district: str = Query(..., description="Distrito a reducir"),
+    to: str = Query(None, description="Distrito destino que recibirá la carga (opcional)"),
     factor: float = Query(0.55, description="Factor de consumo objetivo (0.0-0.9)"),
+    increase_factor: float = Query(0.85, description="Factor de aumento para el distrito destino"),
 ):
     """
     Fuerza un factor de consumo bajo en un distrito (redistribución activa).
-    El simulador enviará consumos al factor indicado ±3% de variación natural.
+    El distrito se saca automáticamente de overload_districts.
+    Opcionalmente aumenta el consumo del distrito destino para simular balanceo.
     """
     with subestaciones_lock:
         distritos_validos = {sub["distrito"] for sub in subestaciones}
@@ -384,23 +390,42 @@ async def set_redistribution(
             status_code=400,
             content={"error": f"Distrito no válido. Válidos: {list(distritos_validos)}"},
         )
+
+    simulator_state["overload_districts"].discard(district)
+    logger.info(f"[REDISTRIBUCION] {district} removido de overload_districts")
+
     factor = max(0.20, min(factor, 0.90))
     simulator_state["redistribution_factors"][district] = factor
     logger.info(f"[REDISTRIBUCION] Factor {factor:.0%} aplicado a: {district}")
+
+    if to and to in distritos_validos and to != district:
+        simulator_state["redistribution_factors"][to] = max(0.50, min(increase_factor, 0.95))
+        simulator_state["redistribution_pairs"][district] = to
+        logger.info(f"[REDISTRIBUCION] Factor {increase_factor:.0%} aplicado a destino: {to} (recibe carga)")
+
     return {
         "event": "REDISTRIBUTION_SET",
         "district": district,
         "factor": factor,
-        "message": f"Consumo de {district} limitado al {factor:.0%} de capacidad",
+        "to": to,
+        "message": f"Consumo de {district} limitado al {factor:.0%}. {to} incrementado al {increase_factor:.0%}." if to else f"Consumo de {district} limitado al {factor:.0%}",
     }
 
 
 @app.post("/simulator/clear-redistribution")
 async def clear_redistribution(district: str = Query(...)):
-    """Quita la redistribución activa de un distrito, volviendo al ciclo normal."""
+    """Quita la redistribución activa de un distrito y su destino, volviendo al ciclo normal."""
+    target = simulator_state["redistribution_pairs"].pop(district, None)
+    if target:
+        simulator_state["redistribution_factors"].pop(target, None)
+        logger.info(f"[REDISTRIBUCION] Redistribución eliminada para destino: {target}")
     simulator_state["redistribution_factors"].pop(district, None)
     logger.info(f"[REDISTRIBUCION] Redistribución eliminada para: {district}")
-    return {"event": "REDISTRIBUTION_CLEARED", "district": district}
+    return {
+        "event": "REDISTRIBUTION_CLEARED",
+        "district": district,
+        "cleared_target": target,
+    }
 
 
 @app.post("/simulator/reset")
@@ -411,6 +436,7 @@ async def reset_simulator():
     simulator_state["peak_hour_active"] = False
     simulator_state["burst_multiplier"] = 1
     simulator_state["redistribution_factors"].clear()
+    simulator_state["redistribution_pairs"].clear()
     
     logger.info("[RESET] Simulador resetado a estado normal")
     
