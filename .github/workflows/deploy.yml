@@ -1,0 +1,150 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-backend:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-frontend:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push simulator
+        uses: docker/build-push-action@v6
+        with:
+          context: ./simulator
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-simulator:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-simulator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push nginx
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/nginx
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-nginx:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-nginx:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push munin-master
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/munin-master
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-munin-master:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/energygrid-munin-master:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Encode files as base64
+        id: files
+        run: |
+          echo "compose=$(base64 -w0 docker-compose.yml)" >> "$GITHUB_OUTPUT"
+          echo "compose_prod=$(base64 -w0 docker-compose.prod.yml)" >> "$GITHUB_OUTPUT"
+          echo "init_sql=$(base64 -w0 database/init.sql)" >> "$GITHUB_OUTPUT"
+
+      - name: Copy files and write .env to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: COMPOSE_B64,COMPOSE_PROD_B64,SQL_B64,ENV_FILE
+          script: |
+            mkdir -p /opt/energygrid/database
+            echo "$COMPOSE_B64"      | base64 -d > /opt/energygrid/docker-compose.yml
+            echo "$COMPOSE_PROD_B64" | base64 -d > /opt/energygrid/docker-compose.prod.yml
+            echo "$SQL_B64"          | base64 -d > /opt/energygrid/database/init.sql
+            printf '%s' "$ENV_FILE"  > /opt/energygrid/.env
+            chmod 600 /opt/energygrid/.env
+        env:
+          COMPOSE_B64: ${{ steps.files.outputs.compose }}
+          COMPOSE_PROD_B64: ${{ steps.files.outputs.compose_prod }}
+          SQL_B64: ${{ steps.files.outputs.init_sql }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/energygrid
+            source .env
+            echo "=== Logging in to ECR ==="
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            echo "=== Pulling new images ==="
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+            echo "=== Restarting services ==="
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+            echo "=== Status ==="
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
