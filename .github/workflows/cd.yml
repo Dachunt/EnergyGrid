@@ -34,8 +34,8 @@ jobs:
     needs: build-and-push
     steps:
       - uses: actions/checkout@v4
-      - name: Upload files to EC2
-        uses: easingthemes/ssh-deploy@v4
+      - name: Copy docker-compose.yml to EC2
+        uses: appleboy/scp-action@v1
         with:
           host: 98.91.49.34
           username: ec2-user
@@ -54,7 +54,7 @@ jobs:
             cd /opt/energygrid
             docker compose pull
             docker compose up -d --remove-orphans
-            for i in {1..30}; do
+            for i in $(seq 1 30); do
               if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
                 echo "Backend healthy!"
                 break
