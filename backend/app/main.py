@@ -15,7 +15,6 @@ from app.auth import get_password_hash
 from app.db import init_db, close_db
 from app.logging_config import setup_logging
 from app.services.metric_queue import queue_worker
-from app.services.monitoring_orchestrator import MonitoringOrchestrator
 from app.routes.monitoring import set_pool_getter as set_monitoring_pool_getter
 from app.routes.monitoring import get_monitoring_instance
 

@@ -5,9 +5,8 @@ Monitorea: procesos activos, memoria, red, disco y carga del servidor
 
 import os
 import psutil
-import time
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger("energygrid")

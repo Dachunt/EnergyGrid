@@ -101,9 +101,6 @@ async def simulate_slow_query(duration_ms: float = Query(2000, ge=100, le=10000)
     
     try:
         # Query que se ejecutará lentamente
-        query = """
-            SELECT pg_sleep($1), * FROM consumption LIMIT 1
-        """
         
         seconds = duration_ms / 1000.0
         
@@ -145,7 +142,6 @@ def add_query_monitoring_to_existing_routes():
     Integra monitoreo automático a rutas existentes
     Coloca esto en main.py para auto-registrar todas las queries
     """
-    import time
     
     # Este código envolvería las funciones de ruta
     # para capturar automáticamente queries lentas

@@ -7,7 +7,7 @@ import asyncio
 import os
 import httpx
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from urllib.parse import urlparse
 import logging
 

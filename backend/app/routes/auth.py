@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timedelta
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Optional
 

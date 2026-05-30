@@ -5,7 +5,7 @@ Integra Munin, Pingdom y Slow Query Log en un sistema unificado
 
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import logging
 
 from app.services.munin_monitor import MuninMonitor

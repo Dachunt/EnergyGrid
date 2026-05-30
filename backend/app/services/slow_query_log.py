@@ -3,7 +3,6 @@ Slow Query Log - Registro de tráfico
 Consolida respuestas lentas de la base de datos para identificar cuellos de botella
 """
 
-import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import logging
@@ -173,7 +172,7 @@ class SlowQueryLog:
 
         if is_slow:
             logger.warning(
-                f"Slow query detected",
+                "Slow query detected",
                 extra={
                     "query_type": query_type,
                     "execution_time_ms": execution_time_ms,
