@@ -40,40 +40,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Deploy via EC2 Instance Connect
+      - name: Deploy via AWS SSM
         run: |
-          ssh-keygen -t rsa -b 2048 -f /tmp/deploy_key -N "" -q
-          PUBLIC_KEY=$(cat /tmp/deploy_key.pub)
-          aws ec2-instance-connect send-ssh-public-key \
-            --instance-id i-084104f36c9bcf27f \
-            --availability-zone us-east-1a \
-            --instance-os-user ec2-user \
-            --ssh-public-key "$PUBLIC_KEY"
-          printf '%s\n' \
-            'AWS_REGION=us-east-1' \
-            'ECR_REGISTRY=107901884265.dkr.ecr.us-east-1.amazonaws.com' \
-            'set -e' \
-            'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY' \
-            'cd /opt/energygrid' \
-            'docker compose pull' \
-            'docker compose up -d --remove-orphans' \
-            'for i in {1..30}; do' \
-            '  if curl -sf http://localhost:8000/health >/dev/null 2>&1; then' \
-            '    echo "Backend healthy!"' \
-            '    break' \
-            '  fi' \
-            '  sleep 5' \
-            'done' > /tmp/deploy.sh
-          scp -i /tmp/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            docker-compose.yml ec2-user@98.91.49.34:/opt/energygrid/
-          scp -i /tmp/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            /tmp/deploy.sh ec2-user@98.91.49.34:/tmp/
-          ssh -i /tmp/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            ec2-user@98.91.49.34 \
-            "bash /tmp/deploy.sh"
+          aws ssm send-command \
+            --instance-ids i-084104f36c9bcf27f \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands='[
+              "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 107901884265.dkr.ecr.us-east-1.amazonaws.com",
+              "cd /opt/energygrid && docker compose pull && docker compose up -d --remove-orphans",
+              "for i in {1..30}; do if curl -sf http://localhost:8000/health >/dev/null 2>&1; then echo Backend healthy!; break; fi; sleep 5; done"
+            ]'
