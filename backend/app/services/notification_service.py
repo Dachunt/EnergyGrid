@@ -3,20 +3,9 @@ notification_service.py
 -----------------------
 Convierte un pico detectado en:
   1. Un broadcast WebSocket hacia todos los clientes conectados.
-  2. Una alerta persistida en la tabla `alertas` de la BD.
+  2. Un log en archivo de picos (spikes/spikes_YYYY-MM-DD.log).
   3. Un log JSON estructurado con todos los campos requeridos.
-
-Los eventos WebSocket que emite este servicio tienen la forma:
-  {
-    "event":          "PICO_ENERGIA",
-    "nivel":          "CRITICO" | "ALTO" | "MODERADO",
-    "district_id":    "...",
-    "substation_id":  "...",
-    "consumo_kw":     float,
-    "incremento_pct": float,
-    "descripcion":    "...",
-    "timestamp":      "ISO8601"
-  }
+  4. Una alerta persistida en la tabla `alertas` de la BD.
 """
 
 import logging
@@ -24,14 +13,10 @@ from datetime import datetime, timezone
 
 from app.websocket_manager import manager
 from app.services.structured_logger import log_event
+from app.services.spike_file_logger import registrar_pico_en_archivo
+from app.services.load_balancer import redistribuir_carga
 
 logger = logging.getLogger("energygrid")
-
-_NIVEL_EMOJI = {
-    "MODERADO": "⚡",
-    "ALTO": "🔶",
-    "CRITICO": "🚨",
-}
 
 _NIVEL_DESCRIPCION = {
     "MODERADO": (
@@ -56,16 +41,6 @@ def _build_descripcion(spike: dict) -> str:
 
 
 async def notificar_pico(spike: dict, pool) -> int | None:
-    """
-    Envía notificación WebSocket y persiste la alerta en BD.
-
-    Args:
-        spike:  dict retornado por spike_detector.detectar_pico()
-        pool:   asyncpg connection pool (puede ser None si BD está caída)
-
-    Returns:
-        alert_id si se persistió en BD, None en caso contrario.
-    """
     nivel = spike["nivel"]
     district_id = spike["district_id"]
     descripcion = _build_descripcion(spike)
@@ -85,7 +60,16 @@ async def notificar_pico(spike: dict, pool) -> int | None:
     }
     await manager.broadcast(payload)
 
-    # ── 2. Log estructurado ──────────────────────────────────────────────────
+    # ── 2. Log en archivo de picos (spikes/spikes_YYYY-MM-DD.log) ───────────
+    redistribucion = []
+    if pool is not None:
+        try:
+            redistribucion = await redistribuir_carga(pool, district_id)
+        except Exception:
+            redistribucion = []
+    registrar_pico_en_archivo(spike, redistribucion)
+
+    # ── 3. Log estructurado ──────────────────────────────────────────────────
     log_level = logging.ERROR if nivel == "CRITICO" else logging.WARNING
     log_event(
         log_level,
@@ -99,7 +83,7 @@ async def notificar_pico(spike: dict, pool) -> int | None:
         descripcion=descripcion,
     )
 
-    # ── 3. Persistir en BD ───────────────────────────────────────────────────
+    # ── 4. Persistir en BD ───────────────────────────────────────────────────
     if pool is None:
         logger.warning(
             f"[NOTIFICATION] BD no disponible; alerta de pico {nivel} en {district_id} no persistida."
