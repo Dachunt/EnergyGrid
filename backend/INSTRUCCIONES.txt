@@ -1,0 +1,66 @@
+================================================================================
+  CONEXION SUPABASE - ENERGYGRID BACKEND
+================================================================================
+
+ESTADO: ✓ CONFIGURACION COMPLETADA
+
+================================================================================
+  ARCHIVO DE CONFIGURACION
+================================================================================
+
+Ubicacion: backend\.env
+
+Variables configuradas:
+  - POSTGRES_USER=postgres
+  - POSTGRES_PASSWORD=S3cur3P@ss2026
+  - POSTGRES_HOST=db.vwizsavkjotspcnoqhva.supabase.co
+  - POSTGRES_PORT=5432
+  - POSTGRES_DB=postgres
+
+================================================================================
+  COMO USAR
+================================================================================
+
+1. VERIFICAR CONEXION:
+   python test_supabase_connection.py
+
+2. INSTALAR DEPENDENCIAS:
+   pip install -r requirements.txt
+
+3. EJECUTAR LA APLICACION:
+   uvicorn app.main:app --reload
+
+4. ACCEDER AL DASHBOARD:
+   http://localhost:8000/
+
+5. VERIFICAR SALUD:
+   http://localhost:8000/health
+
+================================================================================
+  ARCHIVOS IMPORTANTES
+================================================================================
+
+.env                        -> Credenciales (NUNCA commitear)
+.env.example               -> Plantilla sin credenciales
+SUPABASE_SETUP.md          -> Guia detallada
+test_supabase_connection.py -> Script de prueba
+app/db.py                  -> Codigo de conexion
+
+================================================================================
+  SEGURIDAD
+================================================================================
+
+- .env esta protegido por .gitignore
+- No compartir credenciales por email/chat
+- Cambiar contraseña antes de produccion
+- Revisar SUPABASE_SETUP.md para mas detalles
+
+================================================================================
+  SOPORTE
+================================================================================
+
+- Documentacion Supabase: https://supabase.com/docs
+- Dashboard: https://app.supabase.com/
+- Problemas: Ver SUPABASE_SETUP.md seccion "Verificar Conexion"
+
+================================================================================

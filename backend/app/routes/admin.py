@@ -1,316 +1,251 @@
+"""
+Rutas de Admin - Flask
+"""
 import logging
 import math
-from typing import Optional
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, Request, HTTPException, Depends
-
-from app.middleware import require_auth
-from app.websocket_manager import manager
+from datetime import datetime
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.main import db
+from app.models import Usuario, Distrito, Subestacion, Alerta
 
 logger = logging.getLogger("energygrid")
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
 PROXIMITY_KM = 5
 
 
-async def check_substation_proximity(pool, lat: float, lng: float, exclude_id: str = None):
+def check_admin_role(user_id):
+    """Verificar que el usuario es admin"""
+    user = Usuario.query.get(int(user_id))
+    if not user or user.rol != 'admin':
+        return False
+    return True
+
+
+def check_substation_proximity(lat, lng, exclude_id=None):
+    """Verificar que la nueva subestación no está muy cerca de otras"""
     if lat is None or lng is None:
-        return
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, latitud::float8 AS latitud, longitud::float8 AS longitud FROM subestaciones "
-            "WHERE latitud IS NOT NULL AND longitud IS NOT NULL AND id != COALESCE($1, '')",
-            exclude_id or ""
-        )
-    for row in rows:
-        dlat = math.radians(row["latitud"] - lat)
-        dlng = math.radians(row["longitud"] - lng)
-        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat)) * math.cos(math.radians(row["latitud"])) * math.sin(dlng / 2) ** 2
+        return True
+    
+    subs = Subestacion.query.all()
+    for sub in subs:
+        if exclude_id and sub.id == exclude_id:
+            continue
+        
+        if sub.latitud is None or sub.longitud is None:
+            continue
+        
+        # Haversine formula
+        dlat = math.radians(sub.latitud - lat)
+        dlng = math.radians(sub.longitud - lng)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat)) * math.cos(math.radians(sub.latitud)) * math.sin(dlng / 2) ** 2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         dist = 6371 * c
+        
         if dist < PROXIMITY_KM:
-            raise HTTPException(
-                status_code=400,
-                detail=f"La subestación '{row['id']}' está a solo {dist:.1f} km de distancia "
-                       f"(mínimo {PROXIMITY_KM} km permitido)"
-            )
+            return False
+    
+    return True
 
 
-# ── Pydantic models ──────────────────────────────────────────────────────────
-
-class DistrictCreate(BaseModel):
-    id: str = Field(..., min_length=1, max_length=50)
-    nombre: str = Field(..., min_length=1, max_length=100)
-    descripcion: Optional[str] = ""
-    latitud: Optional[float] = None
-    longitud: Optional[float] = None
-
-class DistrictUpdate(BaseModel):
-    nombre: Optional[str] = None
-    descripcion: Optional[str] = None
-    latitud: Optional[float] = None
-    longitud: Optional[float] = None
-    activo: Optional[bool] = None
-
-class SubstationCreate(BaseModel):
-    id: str = Field(..., min_length=1, max_length=50)
-    nombre: str = Field(..., max_length=100)
-    distrito: str = Field(..., max_length=50)
-    capacidad_kw: float = Field(..., gt=0)
-    latitud: Optional[float] = None
-    longitud: Optional[float] = None
-    activa: bool = True
-
-class SubstationUpdate(BaseModel):
-    nombre: Optional[str] = None
-    distrito: Optional[str] = None
-    capacidad_kw: Optional[float] = None
-    latitud: Optional[float] = None
-    longitud: Optional[float] = None
-    activa: Optional[bool] = None
+@admin_bp.route('/users', methods=['GET'])
+@jwt_required()
+def list_users():
+    """Listar todos los usuarios (solo admin)"""
+    user_id = get_jwt_identity()
+    if not check_admin_role(user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    try:
+        users = Usuario.query.all()
+        return jsonify([u.to_dict() for u in users]), 200
+    except Exception as e:
+        logger.error(f"Error al listar usuarios: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# DISTRITOS CRUD
-# ═══════════════════════════════════════════════════════════════════════════════
+@admin_bp.route('/users/<int:user_id>', methods=['GET'])
+@jwt_required()
+def get_user(user_id):
+    """Obtener un usuario específico"""
+    current_user_id = get_jwt_identity()
+    if not check_admin_role(current_user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    try:
+        user = Usuario.query.get(user_id)
+        if not user:
+            return jsonify({"error": "Usuario no encontrado"}), 404
+        return jsonify(user.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error al obtener usuario: {e}")
+        return jsonify({"error": str(e)}), 500
 
-@router.get("/districts")
-async def list_districts(request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, nombre, descripcion, latitud::float8 AS latitud, longitud::float8 AS longitud, "
-            "activo, created_at, updated_at FROM distritos ORDER BY nombre"
+
+@admin_bp.route('/users/<int:user_id>', methods=['PUT'])
+@jwt_required()
+def update_user(user_id):
+    """Actualizar un usuario"""
+    current_user_id = get_jwt_identity()
+    if not check_admin_role(current_user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    user = Usuario.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    
+    data = request.get_json()
+    
+    try:
+        if 'nombre_completo' in data:
+            user.nombre_completo = data['nombre_completo']
+        if 'email' in data:
+            user.email = data['email']
+        if 'rol' in data:
+            user.rol = data['rol']
+        if 'activo' in data:
+            user.activo = data['activo']
+        
+        user.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Usuario actualizado: {user_id}")
+        return jsonify(user.to_dict()), 200
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al actualizar usuario: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route('/districts', methods=['GET'])
+@jwt_required()
+def list_districts():
+    """Listar todos los distritos (admin)"""
+    user_id = get_jwt_identity()
+    if not check_admin_role(user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    try:
+        districts = Distrito.query.all()
+        return jsonify([d.to_dict() for d in districts]), 200
+    except Exception as e:
+        logger.error(f"Error al listar distritos: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route('/substations', methods=['GET'])
+@jwt_required()
+def list_substations():
+    """Listar todas las subestaciones (admin)"""
+    user_id = get_jwt_identity()
+    if not check_admin_role(user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    try:
+        subs = Subestacion.query.all()
+        return jsonify([s.to_dict() for s in subs]), 200
+    except Exception as e:
+        logger.error(f"Error al listar subestaciones: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route('/substations', methods=['POST'])
+@jwt_required()
+def create_substation():
+    """Crear nueva subestación (admin)"""
+    user_id = get_jwt_identity()
+    if not check_admin_role(user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    data = request.get_json()
+    
+    if not data or not data.get('id') or not data.get('nombre'):
+        return jsonify({"error": "id y nombre son requeridos"}), 400
+    
+    # Verificar proximidad
+    if not check_substation_proximity(data.get('latitud'), data.get('longitud')):
+        return jsonify({"error": f"Subestación muy cerca de otra (mínimo {PROXIMITY_KM} km)"}), 400
+    
+    try:
+        new_sub = Subestacion(
+            id=data['id'],
+            nombre=data['nombre'],
+            distrito=data.get('distrito'),
+            capacidad_kw=data.get('capacidad_kw', 0),
+            latitud=data.get('latitud', 0),
+            longitud=data.get('longitud', 0),
+            estado=data.get('estado', 'activa')
         )
-    return [dict(row) for row in rows]
+        db.session.add(new_sub)
+        db.session.commit()
+        
+        logger.info(f"Subestación creada: {new_sub.id}")
+        return jsonify(new_sub.to_dict()), 201
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al crear subestación: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@router.get("/districts/{district_id}")
-async def get_district(district_id: str, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, nombre, descripcion, latitud::float8 AS latitud, longitud::float8 AS longitud, "
-            "activo, created_at, updated_at FROM distritos WHERE id = $1",
-            district_id
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="Distrito no encontrado")
-    return dict(row)
+@admin_bp.route('/substations/<sub_id>', methods=['PUT'])
+@jwt_required()
+def update_substation(sub_id):
+    """Actualizar una subestación"""
+    user_id = get_jwt_identity()
+    if not check_admin_role(user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    sub = Subestacion.query.get(sub_id)
+    if not sub:
+        return jsonify({"error": "Subestación no encontrada"}), 404
+    
+    data = request.get_json()
+    
+    # Verificar proximidad si cambia ubicación
+    if 'latitud' in data or 'longitud' in data:
+        lat = data.get('latitud', sub.latitud)
+        lng = data.get('longitud', sub.longitud)
+        if not check_substation_proximity(lat, lng, exclude_id=sub_id):
+            return jsonify({"error": f"Subestación muy cerca de otra (mínimo {PROXIMITY_KM} km)"}), 400
+    
+    try:
+        if 'nombre' in data:
+            sub.nombre = data['nombre']
+        if 'distrito' in data:
+            sub.distrito = data['distrito']
+        if 'capacidad_kw' in data:
+            sub.capacidad_kw = data['capacidad_kw']
+        if 'latitud' in data:
+            sub.latitud = data['latitud']
+        if 'longitud' in data:
+            sub.longitud = data['longitud']
+        if 'estado' in data:
+            sub.estado = data['estado']
+        
+        db.session.commit()
+        logger.info(f"Subestación actualizada: {sub_id}")
+        return jsonify(sub.to_dict()), 200
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al actualizar subestación: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@router.post("/districts")
-async def create_district(data: DistrictCreate, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        existing = await conn.fetchval("SELECT id FROM distritos WHERE id = $1", data.id)
-        if existing:
-            raise HTTPException(status_code=400, detail="Ya existe un distrito con ese ID")
-
-        row = await conn.fetchrow(
-            "INSERT INTO distritos (id, nombre, descripcion, latitud, longitud) "
-            "VALUES ($1, $2, $3, $4, $5) RETURNING *",
-            data.id, data.nombre, data.descripcion, data.latitud, data.longitud
-        )
-    logger.info("Distrito creado", extra={"district_id": data.id, "user": user["username"]})
-    return dict(row)
-
-
-@router.put("/districts/{district_id}")
-async def update_district(district_id: str, data: DistrictUpdate, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT * FROM distritos WHERE id = $1", district_id)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Distrito no encontrado")
-
-        updates = {}
-        for field in ["nombre", "descripcion", "latitud", "longitud", "activo"]:
-            val = getattr(data, field, None)
-            if val is not None:
-                updates[field] = val
-
-        if not updates:
-            return dict(existing)
-
-        set_clause = ", ".join(f"{k} = ${i+1}" for i, k in enumerate(updates.keys()))
-        set_clause += ", updated_at = NOW()"
-        values = list(updates.values())
-        values.append(district_id)
-
-        row = await conn.fetchrow(
-            f"UPDATE distritos SET {set_clause} WHERE id = ${len(values)} RETURNING *",
-            *values
-        )
-    logger.info("Distrito actualizado", extra={"district_id": district_id, "user": user["username"]})
-    if "activo" in updates:
-        await manager.broadcast({
-            "event": "DISTRITO_ACTUALIZADO",
-            "district_id": district_id,
-            "activo": updates["activo"],
-        })
-    return dict(row)
-
-
-@router.delete("/districts/{district_id}")
-async def delete_district(district_id: str, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT id, activo FROM distritos WHERE id = $1", district_id)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Distrito no encontrado")
-
-        if not existing["activo"]:
-            raise HTTPException(status_code=400, detail="El distrito ya está inactivo")
-
-        await conn.execute(
-            "UPDATE distritos SET activo = FALSE, updated_at = NOW() WHERE id = $1",
-            district_id
-        )
-    logger.info("Distrito desactivado", extra={"district_id": district_id, "user": user["username"]})
-    await manager.broadcast({
-        "event": "DISTRITO_ACTUALIZADO",
-        "district_id": district_id,
-        "activo": False,
-    })
-    return {"message": "Distrito desactivado correctamente"}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SUBESTACIONES CRUD
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/substations")
-async def list_substations(request: Request, user: dict = Depends(require_auth), distrito: str = None):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        if distrito:
-            rows = await conn.fetch(
-                "SELECT s.*, d.nombre AS distrito_nombre FROM subestaciones s "
-                "LEFT JOIN distritos d ON s.distrito = d.id "
-                "WHERE s.distrito = $1 ORDER BY s.id",
-                distrito
-            )
-        else:
-            rows = await conn.fetch(
-                "SELECT s.*, d.nombre AS distrito_nombre FROM subestaciones s "
-                "LEFT JOIN distritos d ON s.distrito = d.id ORDER BY s.id"
-            )
-    return [dict(row) for row in rows]
-
-
-@router.get("/substations/{substation_id}")
-async def get_substation(substation_id: str, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT s.*, d.nombre AS distrito_nombre FROM subestaciones s "
-            "LEFT JOIN distritos d ON s.distrito = d.id WHERE s.id = $1",
-            substation_id
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="Subestación no encontrada")
-    return dict(row)
-
-
-@router.post("/substations")
-async def create_substation(data: SubstationCreate, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-
-    if data.latitud is not None and data.longitud is not None:
-        await check_substation_proximity(pool, data.latitud, data.longitud)
-
-    async with pool.acquire() as conn:
-        existing = await conn.fetchval("SELECT id FROM subestaciones WHERE id = $1", data.id)
-        if existing:
-            raise HTTPException(status_code=400, detail="Ya existe una subestación con ese ID")
-
-        district_exists = await conn.fetchval("SELECT id FROM distritos WHERE id = $1 AND activo = TRUE", data.distrito)
-        if not district_exists:
-            raise HTTPException(status_code=400, detail="El distrito especificado no existe o está inactivo")
-
-        row = await conn.fetchrow(
-            "INSERT INTO subestaciones (id, nombre, distrito, capacidad_kw, latitud, longitud, activa) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-            data.id, data.nombre, data.distrito, data.capacidad_kw,
-            data.latitud, data.longitud, data.activa
-        )
-    logger.info("Subestación creada", extra={"substation_id": data.id, "user": user["username"]})
-    return dict(row)
-
-
-@router.put("/substations/{substation_id}")
-async def update_substation(substation_id: str, data: SubstationUpdate, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT * FROM subestaciones WHERE id = $1", substation_id)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Subestación no encontrada")
-
-        if data.distrito is not None:
-            district_exists = await conn.fetchval(
-                "SELECT id FROM distritos WHERE id = $1 AND activo = TRUE", data.distrito
-            )
-            if not district_exists:
-                raise HTTPException(status_code=400, detail="El distrito especificado no existe o está inactivo")
-
-        updates = {}
-        for field in ["nombre", "distrito", "capacidad_kw", "latitud", "longitud", "activa"]:
-            val = getattr(data, field, None)
-            if val is not None:
-                updates[field] = val
-
-        if not updates:
-            return dict(existing)
-
-        check_lat = updates.get("latitud", existing["latitud"])
-        check_lng = updates.get("longitud", existing["longitud"])
-        if check_lat is not None and check_lng is not None:
-            await check_substation_proximity(pool, float(check_lat), float(check_lng), substation_id)
-
-        set_clause = ", ".join(f"{k} = ${i+1}" for i, k in enumerate(updates.keys()))
-        values = list(updates.values())
-        values.append(substation_id)
-
-        row = await conn.fetchrow(
-            f"UPDATE subestaciones SET {set_clause} WHERE id = ${len(values)} RETURNING *",
-            *values
-        )
-    logger.info("Subestación actualizada", extra={"substation_id": substation_id, "user": user["username"]})
-    if "activa" in updates:
-        await manager.broadcast({
-            "event": "SUBESTACION_ACTUALIZADA",
-            "substation_id": substation_id,
-            "district_id": existing["distrito"],
-            "activa": updates["activa"],
-        })
-    return dict(row)
-
-
-@router.delete("/substations/{substation_id}")
-async def delete_substation(substation_id: str, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT id FROM subestaciones WHERE id = $1", substation_id)
-        if not existing:
-            raise HTTPException(status_code=404, detail="Subestación no encontrada")
-
-        await conn.execute("DELETE FROM consumo_temporal WHERE substation_id = $1", substation_id)
-        await conn.execute("DELETE FROM subestaciones WHERE id = $1", substation_id)
-    logger.info("Subestación eliminada", extra={"substation_id": substation_id, "user": user["username"]})
-    return {"message": "Subestación eliminada correctamente"}
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# USUARIOS (solo lectura para administradores)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/users")
-async def list_users(request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, username, email, nombre_completo, rol, activo, created_at "
-            "FROM usuarios ORDER BY id"
-        )
-    return [dict(row) for row in rows]
+@admin_bp.route('/alerts', methods=['GET'])
+@jwt_required()
+def list_alerts():
+    """Listar todas las alertas"""
+    user_id = get_jwt_identity()
+    if not check_admin_role(user_id):
+        return jsonify({"error": "Acceso denegado"}), 403
+    
+    try:
+        alerts = Alerta.query.order_by(Alerta.created_at.desc()).all()
+        return jsonify([a.to_dict() for a in alerts]), 200
+    except Exception as e:
+        logger.error(f"Error al listar alertas: {e}")
+        return jsonify({"error": str(e)}), 500

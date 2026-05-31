@@ -1,52 +1,48 @@
-import os
-import httpx
+"""
+Rutas de Demo - Flask
+"""
 import logging
-from fastapi import APIRouter, Request, HTTPException
+import os
+import requests
+from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger("energygrid")
 
-router = APIRouter(prefix="/api/demo", tags=["demo"])
+demo_bp = Blueprint('demo', __name__, url_prefix='/api/demo')
 
 SIMULATOR_URL = os.getenv("SIMULATOR_URL", "http://localhost:8001")
 
 
-@router.get("/simulator/health")
-async def proxy_simulator_health():
+@demo_bp.route('/simulator/health', methods=['GET'])
+def proxy_simulator_health():
     """Estado del simulador (health check)"""
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{SIMULATOR_URL}/health")
-            return resp.json()
-    except httpx.ConnectError:
-        raise HTTPException(status_code=502, detail="Simulador no accesible")
+        resp = requests.get(f"{SIMULATOR_URL}/health", timeout=10)
+        return resp.json(), resp.status_code
+    except Exception as e:
+        logger.error(f"Error conectando a simulador: {e}")
+        return jsonify({"error": "Simulador no accesible"}), 502
 
 
-@router.get("/simulator/tiempo-virtual")
-async def proxy_simulator_tiempo_virtual():
+@demo_bp.route('/simulator/tiempo-virtual', methods=['GET'])
+def proxy_simulator_tiempo_virtual():
     """Tiempo virtual actual del simulador"""
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{SIMULATOR_URL}/simulator/tiempo-virtual")
-            return resp.json()
-    except httpx.ConnectError:
-        raise HTTPException(status_code=502, detail="Simulador no accesible")
+        resp = requests.get(f"{SIMULATOR_URL}/simulator/tiempo-virtual", timeout=10)
+        return resp.json(), resp.status_code
+    except Exception as e:
+        logger.error(f"Error conectando a simulador: {e}")
+        return jsonify({"error": "Simulador no accesible"}), 502
 
 
-@router.post("/simulator/{path:path}")
-async def proxy_simulator(path: str, request: Request):
-    """Proxy genérico para endpoints POST del simulador"""
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            params = dict(request.query_params)
-            resp = await client.post(f"{SIMULATOR_URL}/simulator/{path}", params=params)
-            try:
-                body = resp.json()
-            except Exception:
-                body = {"text": resp.text}
-            return {
-                "status_code": resp.status_code,
-                "simulator_status": "ok" if resp.is_success else "error",
-                "response": body,
-            }
-    except httpx.ConnectError:
-        raise HTTPException(status_code=502, detail="Simulador no accesible")
+@demo_bp.route('/metrics/sample', methods=['GET'])
+def demo_metrics():
+    """Endpoint de demo con métricas de ejemplo"""
+    return jsonify({
+        "substation_id": "SSS001",
+        "distrito_id": "San Salvador",
+        "consumo_kw": 2500,
+        "capacidad_kw": 5000,
+        "porcentaje_uso": 50.0,
+        "timestamp": "2026-05-30T22:48:00Z"
+    }), 200
