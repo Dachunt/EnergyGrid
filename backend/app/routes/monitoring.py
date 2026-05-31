@@ -1,232 +1,153 @@
 """
-Monitoring Routes - Endpoints API para el sistema de monitoreo
+Rutas de Monitoreo - Flask
 """
+import logging
+from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required
+from app.main import db
+from app.models import ConsumoTemporal, Alerta, Subestacion
+from sqlalchemy import desc, func
 
-from fastapi import APIRouter, Query
-from app.services.monitoring_orchestrator import MonitoringOrchestrator
-
-router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
-
-# Instancia global del orquestador
-monitoring = None
-
-
-def get_monitoring_instance() -> MonitoringOrchestrator:
-    """Obtiene instancia global del monitoreo"""
-    global monitoring
-    if monitoring is None:
-        monitoring = MonitoringOrchestrator()
-    return monitoring
+logger = logging.getLogger("energygrid")
+monitoring_bp = Blueprint('monitoring', __name__, url_prefix='/api/monitoring')
 
 
-def set_pool_getter(getter):
-    """Configura el pool_getter para pg_stat_collector"""
-    inst = get_monitoring_instance()
-    inst.pg_stat.pool_getter = getter
+@monitoring_bp.route('/health', methods=['GET'])
+def get_health():
+    """Obtener estado de salud del sistema"""
+    try:
+        # Obtener últimas métricas
+        latest = ConsumoTemporal.query.order_by(desc(ConsumoTemporal.timestamp)).first()
+        
+        # Contar alertas activas
+        active_alerts = Alerta.query.filter_by(resuelta=False).count()
+        
+        # Calcular promedio de consumo
+        last_hour = datetime.utcnow() - timedelta(hours=1)
+        avg_consumption = db.session.query(func.avg(ConsumoTemporal.consumo_kw)).filter(
+            ConsumoTemporal.timestamp >= last_hour
+        ).scalar() or 0
+        
+        return jsonify({
+            "status": "ok",
+            "timestamp": datetime.utcnow().isoformat(),
+            "database": "connected",
+            "active_alerts": active_alerts,
+            "average_consumption_kw": round(avg_consumption, 2),
+            "last_metric": latest.timestamp.isoformat() if latest else None
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error en health check: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
-# ============== ENDPOINTS DE SALUD GENERAL ==============
+@monitoring_bp.route('/dashboard', methods=['GET'])
+def get_dashboard():
+    """Obtener datos del dashboard"""
+    try:
+        # Obtener últimas métricas de cada subestación
+        subqueries = db.session.query(
+            ConsumoTemporal.subestacion_id,
+            func.max(ConsumoTemporal.timestamp).label('latest_timestamp')
+        ).group_by(ConsumoTemporal.subestacion_id).subquery()
+        
+        latest_metrics = db.session.query(ConsumoTemporal).join(
+            subqueries,
+            (ConsumoTemporal.subestacion_id == subqueries.c.subestacion_id) &
+            (ConsumoTemporal.timestamp == subqueries.c.latest_timestamp)
+        ).all()
+        
+        # Procesar datos
+        metrics_data = []
+        for metric in latest_metrics:
+            sub = Subestacion.query.get(metric.subestacion_id)
+            metrics_data.append({
+                "subestacion_id": metric.subestacion_id,
+                "subestacion_nombre": sub.nombre if sub else "Unknown",
+                "consumo_kw": metric.consumo_kw,
+                "capacidad_kw": metric.capacidad_kw,
+                "porcentaje_uso": round((metric.consumo_kw / metric.capacidad_kw * 100), 2),
+                "timestamp": metric.timestamp.isoformat()
+            })
+        
+        # Alertas activas
+        active_alerts = Alerta.query.filter_by(resuelta=False).all()
+        alerts_data = [a.to_dict() for a in active_alerts]
+        
+        return jsonify({
+            "metrics": metrics_data,
+            "alerts": alerts_data,
+            "total_substations": len(metrics_data),
+            "active_alerts_count": len(alerts_data)
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error en dashboard: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@router.get("/health")
-async def get_system_health():
-    """Obtiene el estado general del sistema"""
-    monitor = get_monitoring_instance()
-    return monitor.get_system_health()
+@monitoring_bp.route('/alerts', methods=['GET'])
+def get_alerts():
+    """Obtener todas las alertas"""
+    try:
+        include_resolved = request.args.get('include_resolved', 'false').lower() == 'true'
+        
+        if include_resolved:
+            alerts = Alerta.query.order_by(desc(Alerta.created_at)).all()
+        else:
+            alerts = Alerta.query.filter_by(resuelta=False).order_by(desc(Alerta.created_at)).all()
+        
+        return jsonify([a.to_dict() for a in alerts]), 200
+    
+    except Exception as e:
+        logger.error(f"Error al obtener alertas: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@router.get("/dashboard")
-async def get_monitoring_dashboard():
-    """Obtiene el dashboard completo de monitoreo"""
-    monitor = get_monitoring_instance()
-    return monitor.get_monitoring_dashboard()
+@monitoring_bp.route('/alerts/<int:alert_id>/resolve', methods=['POST'])
+@jwt_required()
+def resolve_alert(alert_id):
+    """Resolver una alerta"""
+    try:
+        alert = Alerta.query.get(alert_id)
+        if not alert:
+            return jsonify({"error": "Alerta no encontrada"}), 404
+        
+        alert.resuelta = True
+        alert.resolved_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Alerta resuelta: {alert_id}")
+        return jsonify(alert.to_dict()), 200
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al resolver alerta: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-@router.get("/report")
-async def get_detailed_report():
-    """Obtiene reporte detallado de monitoreo"""
-    monitor = get_monitoring_instance()
-    return monitor.get_detailed_report()
-
-
-# ============== ENDPOINTS DE ALERTAS ==============
-
-
-@router.get("/alerts")
-async def get_alerts(severity: str = Query(None)):
-    """Obtiene alertas unificadas de todos los monitores"""
-    monitor = get_monitoring_instance()
-    alerts = monitor.get_unified_alerts()
-
-    if severity:
-        alerts = [a for a in alerts if a.get("severity") == severity]
-
-    return {
-        "total": len(alerts),
-        "alerts": alerts,
-    }
-
-
-# ============== ENDPOINTS DE MUNIN ==============
-
-
-@router.get("/munin/metrics")
-async def get_munin_metrics():
-    """Obtiene las últimas métricas del sistema (Munin)"""
-    monitor = get_monitoring_instance()
-    return monitor.munin.metrics_history[-1] if monitor.munin.metrics_history else {}
-
-
-@router.get("/munin/health")
-async def get_munin_health():
-    """Obtiene el score de salud del sistema"""
-    monitor = get_monitoring_instance()
-    return {
-        "health_score": monitor.munin.get_health_score(),
-        "alerts": monitor.munin.get_alerts(),
-    }
-
-
-@router.get("/munin/history")
-async def get_munin_history(limit: int = Query(50, ge=1, le=500)):
-    """Obtiene historial de métricas"""
-    monitor = get_monitoring_instance()
-    return {
-        "metrics": monitor.munin.metrics_history[-limit:],
-    }
-
-
-# ============== ENDPOINTS DE PINGDOM ==============
-
-
-@router.get("/pingdom/status")
-async def get_pingdom_status():
-    """Obtiene estado de todos los endpoints (Pingdom)"""
-    monitor = get_monitoring_instance()
-    return monitor.pingdom.get_all_status()
-
-
-@router.get("/pingdom/endpoints/{endpoint_name}")
-async def get_endpoint_status(endpoint_name: str):
-    """Obtiene estado detallado de un endpoint específico"""
-    monitor = get_monitoring_instance()
-    return monitor.pingdom.get_endpoint_status(endpoint_name)
-
-
-@router.get("/pingdom/uptime")
-async def get_uptime_report(hours: int = Query(24, ge=1, le=720)):
-    """Obtiene reporte de disponibilidad (uptime)"""
-    monitor = get_monitoring_instance()
-    return monitor.pingdom.get_uptime_report(hours=hours)
-
-
-@router.get("/pingdom/incidents")
-async def get_incidents():
-    """Obtiene lista de incidentes detectados"""
-    monitor = get_monitoring_instance()
-    return {
-        "incidents": monitor.pingdom.get_incidents(),
-    }
-
-
-# ============== ENDPOINTS DE SLOW QUERY LOG ==============
-
-
-@router.get("/queries/statistics")
-async def get_query_statistics():
-    """Obtiene estadísticas de queries de base de datos"""
-    monitor = get_monitoring_instance()
-    return monitor.slow_query_log.get_query_statistics()
-
-
-@router.get("/queries/slow")
-async def get_slow_queries(limit: int = Query(50, ge=1, le=500)):
-    """Obtiene las queries más lentas detectadas"""
-    monitor = get_monitoring_instance()
-    return {
-        "slow_queries": monitor.slow_query_log.get_slow_queries(limit=limit),
-    }
-
-
-@router.get("/queries/bottlenecks")
-async def get_bottlenecks(limit: int = Query(10, ge=1, le=100)):
-    """Identifica cuellos de botella en queries"""
-    monitor = get_monitoring_instance()
-    return {
-        "bottlenecks": monitor.slow_query_log.get_bottlenecks(limit=limit),
-    }
-
-
-@router.get("/queries/breakdown")
-async def get_query_breakdown():
-    """Obtiene desglose de queries por tipo"""
-    monitor = get_monitoring_instance()
-    return monitor.slow_query_log.get_query_type_breakdown()
-
-
-@router.get("/queries/pg_stats")
-async def get_pg_stat_statements():
-    """Obtiene datos crudos de pg_stat_statements"""
-    monitor = get_monitoring_instance()
-    snapshot = monitor.pg_stat.get_last_snapshot()
-    if not snapshot:
-        return {"available": False, "queries": []}
-    return {
-        "available": True,
-        "timestamp": snapshot["timestamp"],
-        "total_queries": snapshot["total_queries"],
-        "total_time_ms": snapshot["total_time_ms"],
-        "queries": snapshot["queries"],
-    }
-
-
-@router.get("/queries/recent")
-async def get_recent_queries(
-    minutes: int = Query(5, ge=1, le=60),
-    limit: int = Query(50, ge=1, le=500),
-):
-    """Obtiene queries recientes dentro de X minutos"""
-    monitor = get_monitoring_instance()
-    return {
-        "recent_queries": monitor.slow_query_log.get_recent_queries(
-            minutes=minutes, limit=limit
-        ),
-    }
-
-
-# ============== ENDPOINTS DE CONTROL ==============
-
-
-@router.post("/start")
-async def start_monitoring():
-    """Inicia monitoreo continuo"""
-    monitor = get_monitoring_instance()
-    await monitor.initialize_monitoring()
-    await monitor.start_continuous_monitoring()
-    return {"status": "monitoring started"}
-
-
-@router.post("/stop")
-async def stop_monitoring():
-    """Detiene monitoreo continuo"""
-    monitor = get_monitoring_instance()
-    await monitor.stop_continuous_monitoring()
-    return {"status": "monitoring stopped"}
-
-
-@router.get("/status")
-async def get_monitoring_status():
-    """Obtiene estado del sistema de monitoreo"""
-    monitor = get_monitoring_instance()
-    pg_snap = monitor.pg_stat.get_last_snapshot()
-    return {
-        "monitoring_active": monitor.monitoring_active,
-        "munin_metrics_count": len(monitor.munin.metrics_history),
-        "pingdom_checks_count": len(monitor.pingdom.uptime_history),
-        "database_queries_logged": monitor.slow_query_log.stats["total_queries"],
-        "data_source": monitor.slow_query_log.data_source,
-        "pg_stat_statements": {
-            "available": pg_snap is not None,
-            "cached_queries": len(pg_snap["queries"]) if pg_snap else 0,
-        },
-    }
+@monitoring_bp.route('/metrics/history', methods=['GET'])
+def get_metrics_history():
+    """Obtener historial de métricas"""
+    try:
+        hours = request.args.get('hours', 24, type=int)
+        substation_id = request.args.get('substation_id')
+        
+        # Calcular fecha de inicio
+        start_time = datetime.utcnow() - timedelta(hours=hours)
+        
+        # Construir query
+        query = ConsumoTemporal.query.filter(ConsumoTemporal.timestamp >= start_time)
+        
+        if substation_id:
+            query = query.filter_by(subestacion_id=substation_id)
+        
+        metrics = query.order_by(ConsumoTemporal.timestamp).all()
+        
+        return jsonify([m.to_dict() for m in metrics]), 200
+    
+    except Exception as e:
+        logger.error(f"Error al obtener historial: {e}")
+        return jsonify({"error": str(e)}), 500

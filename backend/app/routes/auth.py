@@ -1,158 +1,148 @@
+"""
+Rutas de Autenticación - Flask
+"""
 import logging
 from datetime import datetime, timedelta
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, Request, HTTPException, Depends
-from typing import Optional
-
-from app.auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from app.middleware import require_auth
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from app.main import db
+from app.models import Usuario
+from app.auth import verify_password, get_password_hash
 
 logger = logging.getLogger("energygrid")
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 
-# ── Pydantic models ──────────────────────────────────────────────────────────
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
-    email: Optional[str] = None
-    password: str = Field(..., min_length=6)
-    nombre_completo: Optional[str] = ""
-
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str = Field(..., min_length=6)
-
-
-# ── Endpoints ────────────────────────────────────────────────────────────────
-
-@router.post("/login")
-async def login(data: LoginRequest, request: Request):
-    pool = request.app.state.db
-    if not pool:
-        raise HTTPException(status_code=503, detail="Base de datos no disponible")
-
-    async with pool.acquire() as conn:
-        user = await conn.fetchrow(
-            "SELECT id, username, email, password_hash, nombre_completo, rol, activo "
-            "FROM usuarios WHERE username = $1",
-            data.username
-        )
-        if not user:
-            raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
-        if not user["activo"]:
-            raise HTTPException(status_code=401, detail="Usuario inactivo")
-        if not verify_password(data.password, user["password_hash"]):
-            raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
-
-        access_token = create_access_token({"sub": str(user["id"]), "username": user["username"]})
-
-        expires_at = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        await conn.execute(
-            "INSERT INTO sesiones (usuario_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-            user["id"], access_token[-50:], expires_at
-        )
-
-    logger.info("Login exitoso", extra={"username": data.username})
-    return {
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    """Endpoint de login"""
+    data = request.get_json()
+    
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({"error": "Username y password son requeridos"}), 400
+    
+    user = Usuario.query.filter_by(username=data['username']).first()
+    
+    if not user:
+        logger.warning(f"Login failed: usuario no encontrado - {data['username']}")
+        return jsonify({"error": "Usuario o contraseña incorrectos"}), 401
+    
+    if not user.activo:
+        logger.warning(f"Login failed: usuario inactivo - {data['username']}")
+        return jsonify({"error": "Usuario inactivo"}), 401
+    
+    if not verify_password(data['password'], user.password_hash):
+        logger.warning(f"Login failed: contraseña incorrecta - {data['username']}")
+        return jsonify({"error": "Usuario o contraseña incorrectos"}), 401
+    
+    access_token = create_access_token(identity=str(user.id))
+    
+    logger.info(f"Login exitoso: {user.username}")
+    return jsonify({
         "access_token": access_token,
         "token_type": "bearer",
-        "user": {
-            "id": user["id"],
-            "username": user["username"],
-            "email": user["email"],
-            "nombre_completo": user["nombre_completo"],
-            "rol": user["rol"],
-        },
-    }
+        "user": user.to_dict()
+    }), 200
 
 
-@router.post("/register")
-async def register(data: RegisterRequest, request: Request):
-    pool = request.app.state.db
-    if not pool:
-        raise HTTPException(status_code=503, detail="Base de datos no disponible")
-
-    email_val = data.email if data.email else f"{data.username}@energygrid.com"
-    nombre_val = data.nombre_completo if data.nombre_completo else data.username
-
-    hashed = get_password_hash(data.password)
-
-    async with pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            "SELECT id FROM usuarios WHERE username = $1 OR email = $2",
-            data.username, email_val
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    """Endpoint de registro"""
+    data = request.get_json()
+    
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({"error": "Username y password son requeridos"}), 400
+    
+    if len(data['username']) < 3 or len(data['username']) > 50:
+        return jsonify({"error": "Username debe tener entre 3 y 50 caracteres"}), 400
+    
+    if len(data['password']) < 6:
+        return jsonify({"error": "Password debe tener al menos 6 caracteres"}), 400
+    
+    # Verificar si usuario ya existe
+    existing = Usuario.query.filter_by(username=data['username']).first()
+    if existing:
+        return jsonify({"error": "El usuario ya existe"}), 400
+    
+    email = data.get('email', f"{data['username']}@energygrid.com")
+    nombre_completo = data.get('nombre_completo', data['username'])
+    
+    try:
+        new_user = Usuario(
+            username=data['username'],
+            email=email,
+            password_hash=get_password_hash(data['password']),
+            nombre_completo=nombre_completo,
+            rol='user',
+            activo=True
         )
-        if existing:
-            raise HTTPException(status_code=400, detail="El usuario o email ya existe")
-
-        user = await conn.fetchrow(
-            "INSERT INTO usuarios (username, email, password_hash, nombre_completo) "
-            "VALUES ($1, $2, $3, $4) RETURNING id, username, email, nombre_completo, rol",
-            data.username, email_val, hashed, nombre_val
-        )
-
-        access_token = create_access_token({"sub": str(user["id"]), "username": user["username"]})
-
-        expires_at = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        await conn.execute(
-            "INSERT INTO sesiones (usuario_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-            user["id"], access_token[-50:], expires_at
-        )
-
-    logger.info("Registro exitoso", extra={"username": data.username})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": dict(user),
-    }
+        db.session.add(new_user)
+        db.session.commit()
+        
+        access_token = create_access_token(identity=str(new_user.id))
+        
+        logger.info(f"Registro exitoso: {new_user.username}")
+        return jsonify({
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": new_user.to_dict()
+        }), 201
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error en registro: {e}")
+        return jsonify({"error": "Error al crear el usuario"}), 500
 
 
-@router.get("/me")
-async def get_me(user: dict = Depends(require_auth)):
-    return user
+@auth_bp.route('/me', methods=['GET'])
+@jwt_required()
+def get_me():
+    """Obtener información del usuario autenticado"""
+    user_id = get_jwt_identity()
+    user = Usuario.query.get(int(user_id))
+    
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    
+    return jsonify(user.to_dict()), 200
 
 
-@router.post("/logout")
-async def logout(request: Request, user: dict = Depends(require_auth)):
-    auth_header = request.headers.get("Authorization", "")
-    token = auth_header.replace("Bearer ", "")
-
-    pool = request.app.state.db
-    if pool:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM sesiones WHERE token_hash = $1 AND usuario_id = $2",
-                token[-50:], user["id"]
-            )
-    return {"message": "Sesión cerrada correctamente"}
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    """Logout del usuario"""
+    return jsonify({"message": "Sesión cerrada correctamente"}), 200
 
 
-@router.post("/change-password")
-async def change_password(data: ChangePasswordRequest, request: Request, user: dict = Depends(require_auth)):
-    pool = request.app.state.db
-    if not pool:
-        raise HTTPException(status_code=503, detail="Base de datos no disponible")
-
-    async with pool.acquire() as conn:
-        current = await conn.fetchval(
-            "SELECT password_hash FROM usuarios WHERE id = $1", user["id"]
-        )
-        if not verify_password(data.current_password, current):
-            raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
-
-        new_hash = get_password_hash(data.new_password)
-        await conn.execute(
-            "UPDATE usuarios SET password_hash = $1, updated_at = NOW() WHERE id = $2",
-            new_hash, user["id"]
-        )
-
-        await conn.execute(
-            "DELETE FROM sesiones WHERE usuario_id = $1", user["id"]
-        )
-
-    return {"message": "Contraseña cambiada correctamente"}
+@auth_bp.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    """Cambiar contraseña del usuario"""
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    if not data or not data.get('current_password') or not data.get('new_password'):
+        return jsonify({"error": "current_password y new_password son requeridos"}), 400
+    
+    if len(data['new_password']) < 6:
+        return jsonify({"error": "Nueva contraseña debe tener al menos 6 caracteres"}), 400
+    
+    user = Usuario.query.get(int(user_id))
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    
+    if not verify_password(data['current_password'], user.password_hash):
+        return jsonify({"error": "Contraseña actual incorrecta"}), 400
+    
+    try:
+        user.password_hash = get_password_hash(data['new_password'])
+        user.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Contraseña cambiada: {user.username}")
+        return jsonify({"message": "Contraseña cambiada correctamente"}), 200
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al cambiar contraseña: {e}")
+        return jsonify({"error": "Error al cambiar la contraseña"}), 500
